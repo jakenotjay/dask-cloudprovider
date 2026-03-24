@@ -662,18 +662,17 @@ class GCPCluster(VMCluster):
             self.scheduler_machine_type = machine_type
             self.worker_machine_type = machine_type
 
-        ngpus_value = ngpus or self.config.get("ngpus")
-        self.ngpus = int(ngpus_value) if ngpus_value else None
+        self.ngpus = ngpus or self.config.get("ngpus")
         if not self.ngpus:
             self.scheduler_ngpus = (
                 scheduler_ngpus
                 if scheduler_ngpus is not None
-                else int(self.config.get("scheduler_ngpus") or 0)
+                else self.config.get("scheduler_ngpus") or 0
             )
             self.worker_ngpus = (
                 worker_ngpus
                 if worker_ngpus is not None
-                else int(self.config.get("worker_ngpus") or 0)
+                else self.config.get("worker_ngpus") or 0
             )
         else:
             if scheduler_ngpus is not None or worker_ngpus is not None:
