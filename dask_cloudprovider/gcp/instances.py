@@ -64,6 +64,8 @@ class GCPInstance(VMInterface):
         gpu_instance=None,
         auto_shutdown=None,
         preemptible=False,
+        spot=None,
+        instance_termination_action=None,
         instance_labels=None,
         service_account=None,
         instance_scopes=None,
@@ -100,6 +102,29 @@ class GCPInstance(VMInterface):
         self.extra_bootstrap = extra_bootstrap
         self.auto_shutdown = auto_shutdown
         self.preemptible = preemptible
+
+        # Resolve spot vs preemptible (backward compat).
+        # spot=True is the modern way; preemptible=True is legacy and maps to spot.
+        if spot is not None:
+            self.spot = bool(spot)
+        elif self.preemptible:
+            import warnings
+
+            warnings.warn(
+                "The 'preemptible' parameter is deprecated. Use 'spot=True' instead. "
+                "preemptible=True now creates a Spot VM (no 24-hour limit) rather than "
+                "a legacy preemptible VM.",
+                FutureWarning,
+                stacklevel=4,
+            )
+            self.spot = True
+        else:
+            self.spot = False
+
+        self.instance_termination_action = (
+            instance_termination_action
+            or self.config.get("instance_termination_action", "DELETE")
+        ).upper()
 
         _instance_labels = self.config.get("instance_labels")
         _instance_labels.update(instance_labels)
@@ -165,12 +190,7 @@ class GCPInstance(VMInterface):
                 ]
             },
             "labels": self.instance_labels,
-            "scheduling": {
-                "preemptible": ("true" if self.preemptible else "false"),
-                "onHostMaintenance": self.on_host_maintenance.upper(),
-                "automaticRestart": ("false" if self.preemptible else "true"),
-                "nodeAffinities": [],
-            },
+            "scheduling": self._build_scheduling_config(),
             "shieldedInstanceConfig": {
                 "enableSecureBoot": "false",
                 "enableVtpm": "true",
@@ -199,6 +219,32 @@ class GCPInstance(VMInterface):
             ]
 
         return config
+
+    def _build_scheduling_config(self):
+        """Build the GCP API scheduling configuration.
+
+        For Spot VMs: sets provisioningModel=SPOT with the required constraints
+        (automaticRestart=false, onHostMaintenance=TERMINATE).
+
+        For standard VMs: uses the configured on_host_maintenance setting
+        (defaults to TERMINATE for GPU compatibility).
+        """
+        if self.spot:
+            return {
+                "provisioningModel": "SPOT",
+                "instanceTerminationAction": self.instance_termination_action,
+                "preemptible": True,
+                "onHostMaintenance": "TERMINATE",
+                "automaticRestart": False,
+                "nodeAffinities": [],
+            }
+        return {
+            "provisioningModel": "STANDARD",
+            "preemptible": False,
+            "onHostMaintenance": self.on_host_maintenance.upper(),
+            "automaticRestart": True,
+            "nodeAffinities": [],
+        }
 
     async def create_vm(self):
         self.cloud_init = self.cluster.render_process_cloud_init(self)
@@ -288,6 +334,8 @@ class GCPScheduler(SchedulerMixin, GCPInstance):
 
     def __init__(self, *args, **kwargs):
         kwargs.pop("preemptible", None)  # scheduler instances are not preemptible
+        kwargs.pop("spot", None)  # scheduler instances are never spot
+        kwargs.pop("instance_termination_action", None)
         super().__init__(*args, **kwargs)
 
     async def start(self):
@@ -507,8 +555,21 @@ class GCPCluster(VMCluster):
         Configures communication security in this cluster. Can be a security
         object, or True. If True, temporary self-signed credentials will
         be created automatically. Default is ``True``.
+    spot: bool (optional)
+        Whether to use Spot VMs for workers in this cluster. Spot VMs are significantly
+        cheaper than standard VMs but can be preempted by GCP at any time. Unlike legacy
+        preemptible VMs, Spot VMs have no 24-hour maximum runtime.
+        The scheduler always runs as a standard on-demand instance.
+        Defaults to ``False``.
+    instance_termination_action: str (optional)
+        The action to take when a Spot VM is preempted by GCP. Valid values are
+        ``"DELETE"`` (default) and ``"STOP"``. ``"DELETE"`` is recommended for Dask
+        workers since Dask will replace terminated workers.
+        Only relevant when ``spot=True``. Defaults to ``"DELETE"``.
     preemptible: bool (optional)
+        .. deprecated:: Use ``spot=True`` instead.
         Whether to use preemptible instances for workers in this cluster. Defaults to ``False``.
+        Setting ``preemptible=True`` now creates a modern Spot VM (no 24-hour limit).
     debug: bool, optional
         More information will be printed when constructing clusters to enable debugging.
     instance_labels: dict (optional)
@@ -623,6 +684,8 @@ class GCPCluster(VMCluster):
         auto_shutdown=None,
         bootstrap=True,
         preemptible=None,
+        spot=None,
+        instance_termination_action=None,
         debug=False,
         instance_labels=None,
         service_account=None,
@@ -725,6 +788,16 @@ class GCPCluster(VMCluster):
                 preemptible
                 if preemptible is not None
                 else self.config.get("preemptible")
+            ),
+            "spot": (
+                spot
+                if spot is not None
+                else self.config.get("spot")
+            ),
+            "instance_termination_action": (
+                instance_termination_action
+                if instance_termination_action is not None
+                else self.config.get("instance_termination_action")
             ),
             "instance_labels": instance_labels or self.config.get("instance_labels"),
             "service_account": service_account or self.config.get("service_account"),

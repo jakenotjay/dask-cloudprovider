@@ -5,6 +5,7 @@ from dask_cloudprovider.gcp.instances import (
     GCPCluster,
     GCPCompute,
     GCPCredentialsError,
+    GCPInstance,
 )
 from dask.distributed import Client
 from distributed.core import Status
@@ -110,6 +111,22 @@ async def test_create_cluster():
 @pytest.mark.asyncio
 @pytest.mark.timeout(1200)
 @pytest.mark.external
+async def test_create_spot_cluster():
+    skip_without_credentials()
+
+    async with GCPCluster(
+        asynchronous=True, spot=True, security=True
+    ) as cluster:
+        assert cluster.status == Status.running
+
+        cluster.scale(1)
+        await cluster
+        assert len(cluster.workers) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(1200)
+@pytest.mark.external
 async def test_create_cluster_sync():
     skip_without_credentials()
 
@@ -200,3 +217,64 @@ def test_create_rapids_cluster_sync():
         assert "total" in res["gpu"][0]["fb_memory_usage"].keys()
         print(res)
     cluster.close()
+
+
+# --- Spot VM scheduling config unit tests (no GCP credentials needed) ---
+
+
+def test_build_scheduling_config_spot():
+    """SPOT scheduling config has correct provisioningModel and constraints."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.spot = True
+    instance.instance_termination_action = "DELETE"
+    instance.on_host_maintenance = "TERMINATE"
+
+    config = instance._build_scheduling_config()
+    assert config["provisioningModel"] == "SPOT"
+    assert config["instanceTerminationAction"] == "DELETE"
+    assert config["preemptible"] is True
+    assert config["automaticRestart"] is False
+    assert config["onHostMaintenance"] == "TERMINATE"
+
+
+def test_build_scheduling_config_standard():
+    """STANDARD scheduling config has no instanceTerminationAction."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.spot = False
+    instance.on_host_maintenance = "TERMINATE"
+
+    config = instance._build_scheduling_config()
+    assert config["provisioningModel"] == "STANDARD"
+    assert config["preemptible"] is False
+    assert config["automaticRestart"] is True
+    assert config["onHostMaintenance"] == "TERMINATE"
+    assert "instanceTerminationAction" not in config
+
+
+def test_build_scheduling_config_stop_action():
+    """instanceTerminationAction=STOP is respected."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.spot = True
+    instance.instance_termination_action = "STOP"
+    instance.on_host_maintenance = "TERMINATE"
+
+    config = instance._build_scheduling_config()
+    assert config["instanceTerminationAction"] == "STOP"
+
+
+@pytest.mark.asyncio
+async def test_spot_default_is_false():
+    """Spot defaults to False when no spot config is provided."""
+    skip_without_credentials()
+
+    cluster = GCPCluster(asynchronous=True)
+    assert cluster.worker_options.get("spot") in (None, False)
+
+
+@pytest.mark.asyncio
+async def test_spot_true_passed_to_workers():
+    """spot=True flows through to worker options."""
+    skip_without_credentials()
+
+    cluster = GCPCluster(asynchronous=True, spot=True)
+    assert cluster.worker_options["spot"] is True
