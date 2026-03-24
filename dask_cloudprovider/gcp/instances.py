@@ -128,6 +128,8 @@ class GCPInstance(VMInterface):
 
         _instance_labels = self.config.get("instance_labels")
         _instance_labels.update(instance_labels)
+        _instance_labels.setdefault("managed-by", "dask-cloudprovider")
+        _instance_labels["cluster-uuid"] = self.cluster.uuid
         self.instance_labels = _instance_labels
 
         self.general_zone = "-".join(self.zone.split("-")[:2])  # us-east1-c -> us-east1
