@@ -113,7 +113,7 @@ cloudprovider:
     scheduler_gpu_type: null # type of gpus to use. (e.g. 'nvidia-tesla-t4'). You can view the possible values through ``gcloud compute accelerator-types list``.
     worker_ngpus: null # number of GPUs to use on worker
     worker_gpu_type: null # type of gpus to use. (e.g. 'nvidia-tesla-t4'). You can view the possible values through ``gcloud compute accelerator-types list``.
-    disk_type: "pd-standard" # type of disk to use: pd-standard, pd-ssd
+    disk_type: "pd-balanced" # type of disk to use: pd-standard, pd-balanced, pd-ssd
     docker_image: "daskdev/dask:latest" # docker image to use
     auto_shutdown: true # Shutdown instances automatically if the scheduler or worker services time out.
     public_ingress: true # configure the scheduler to be externally accessible.  This assumes firefwall rules for 8787 and 8786
