@@ -490,7 +490,7 @@ class GCPCluster(VMCluster):
             - The full image name ``projects/<projectid>/global/images/<source_image>``.
             - The full image URI such as those listed in ``gcloud compute images list --uri``.
 
-        The default is ``projects/ubuntu-os-cloud/global/images/ubuntu-minimal-1804-bionic-v20201014``.
+        The default is ``projects/ubuntu-os-cloud/global/images/family/ubuntu-minimal-2204-lts``.
     docker_image: string (optional)
         The Docker image to run on all instances.
 
@@ -599,7 +599,7 @@ class GCPCluster(VMCluster):
     >>> from dask_cloudprovider.gcp import GCPCluster
     >>> cluster = GCPCluster(n_workers=1)
     Launching cluster with the following configuration:
-    Source Image: projects/ubuntu-os-cloud/global/images/ubuntu-minimal-1804-bionic-v20201014
+    Source Image: projects/ubuntu-os-cloud/global/images/family/ubuntu-minimal-2204-lts
     Docker Image: daskdev/dask:latest
     Machine Type: n1-standard-1
     Filesytsem Size: 50
@@ -641,7 +641,7 @@ class GCPCluster(VMCluster):
     ...     with Client(cluster) as client:
     ...         print(da.random.random((1000, 1000), chunks=(100, 100)).mean().compute())
     Launching cluster with the following configuration:
-    Source Image: projects/ubuntu-os-cloud/global/images/ubuntu-minimal-1804-bionic-v20201014
+    Source Image: projects/ubuntu-os-cloud/global/images/family/ubuntu-minimal-2204-lts
     Docker Image: daskdev/dask:latest
     Machine Type: n1-standard-1
     Filesystem Size: 50
