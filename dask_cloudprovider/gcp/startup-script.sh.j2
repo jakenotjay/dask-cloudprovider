@@ -39,11 +39,16 @@ systemctl restart docker
 {% endfor %}
 {% endif %}
 
-{% if '.' in image.split('/')[0] %}
-# --- Configure Docker credentials for private registry ---
+{% if image.split('/')[0].endswith('.pkg.dev') or image.split('/')[0].endswith('.gcr.io') %}
+# --- Configure Docker credentials for GCP registry ---
 # COS only pre-configures docker-credential-gcr for gcr.io, not *.pkg.dev.
-# Startup scripts run as root with HOME=/root on a read-only filesystem,
-# so we redirect HOME to a writable path for the credential config.
+# On non-COS images docker-credential-gcr is not available; install it.
+{% if bootstrap %}
+curl -fsSL "https://github.com/GoogleCloudPlatform/docker-credential-gcr/releases/latest/download/docker-credential-gcr_linux_amd64-2.1.25.tar.gz" \
+  | tar xz -C /usr/local/bin docker-credential-gcr
+chmod +x /usr/local/bin/docker-credential-gcr
+{% endif %}
+# Startup scripts run as root; COS has read-only /root so use /home/chronos.
 export HOME=/home/chronos
 mkdir -p "$HOME/.docker"
 docker-credential-gcr configure-docker --registries="{{ image.split('/')[0] }}"
