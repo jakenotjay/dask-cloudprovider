@@ -121,7 +121,10 @@ cloudprovider:
       container_vm: "dask-cloudprovider"
     service_account: "default"
     instance_scopes: # OAuth2 scopes to assign to the service account on instances
-      - "https://www.googleapis.com/auth/cloud-platform"
+      - "https://www.googleapis.com/auth/devstorage.read_write"
+      - "https://www.googleapis.com/auth/logging.write"
+      - "https://www.googleapis.com/auth/monitoring.write"
+      - "https://www.googleapis.com/auth/cloud-platform.read-only" # Artifact Registry pulls
 
   hetzner:
     token: null # API token for interacting with the Hetzner cloud API

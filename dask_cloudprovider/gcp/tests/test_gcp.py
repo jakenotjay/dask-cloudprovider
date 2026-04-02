@@ -415,6 +415,24 @@ def test_render_startup_script_invalid_env_key():
         instance.render_startup_script()
 
 
+def test_render_startup_script_no_manual_auth_for_ar_image():
+    """AR images rely on COS pre-configured credential helper, not manual auth."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "europe-west2-docker.pkg.dev/my-project/my-repo/my-image:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = ""
+    instance.extra_bootstrap = None
+    instance.gpu_instance = False
+    instance.bootstrap = False
+    instance.auto_shutdown = True
+    instance.env_vars = {}
+
+    script = instance.render_startup_script()
+    assert "docker-credential-gcr" not in script
+    assert "configure-docker" not in script
+    assert "europe-west2-docker.pkg.dev/my-project/my-repo/my-image:latest" in script
+
+
 def test_build_scheduling_config_invalid_termination_action():
     """Invalid instance_termination_action raises ValueError during init."""
     from unittest.mock import MagicMock
