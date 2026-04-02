@@ -39,6 +39,16 @@ systemctl restart docker
 {% endfor %}
 {% endif %}
 
+{% if '.' in image.split('/')[0] %}
+# --- Configure Docker credentials for private registry ---
+# COS only pre-configures docker-credential-gcr for gcr.io, not *.pkg.dev.
+# Startup scripts run as root with HOME=/root on a read-only filesystem,
+# so we redirect HOME to a writable path for the credential config.
+export HOME=/home/chronos
+mkdir -p "$HOME/.docker"
+docker-credential-gcr configure-docker --registries="{{ image.split('/')[0] }}"
+{% endif %}
+
 # --- Run Dask container ---
 docker run --net=host
 {%- if gpu_instance %} --gpus=all{% endif %}
