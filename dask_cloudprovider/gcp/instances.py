@@ -1,10 +1,13 @@
 import asyncio
 import os
+import re
 import shlex
 import uuid
 import json
 
 from typing import Optional, Any, Dict
+
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 import dask
 from jinja2 import Environment, FileSystemLoader
@@ -135,7 +138,7 @@ class GCPInstance(VMInterface):
             )
 
         _instance_labels = self.config.get("instance_labels") or {}
-        _instance_labels.update(instance_labels)
+        _instance_labels.update(instance_labels or {})
         _instance_labels.setdefault("managed-by", "dask-cloudprovider")
         _instance_labels["cluster-uuid"] = self.cluster.uuid
         self.instance_labels = _instance_labels
@@ -169,11 +172,16 @@ class GCPInstance(VMInterface):
         environment = Environment(loader=loader)
         template = environment.get_template("startup-script.sh.j2")
 
-        # Shell-escape env var keys and values to prevent injection
-        safe_env_vars = {
-            shlex.quote(str(k)): shlex.quote(str(v))
-            for k, v in (self.env_vars or {}).items()
-        }
+        # Validate env var keys and shell-escape values to prevent injection
+        safe_env_vars = {}
+        for k, v in (self.env_vars or {}).items():
+            key = str(k)
+            if not _ENV_KEY_RE.match(key):
+                raise ValueError(
+                    f"Invalid environment variable name {key!r}. "
+                    f"Must match [A-Za-z_][A-Za-z0-9_]*."
+                )
+            safe_env_vars[key] = shlex.quote(str(v))
 
         return template.render(
             image=self.docker_image,

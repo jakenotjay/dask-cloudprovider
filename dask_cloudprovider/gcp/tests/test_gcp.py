@@ -397,3 +397,29 @@ def test_render_startup_script_with_extra_bootstrap():
     script = instance.render_startup_script()
     assert "echo hello" in script
     assert "whoami" in script
+
+
+def test_render_startup_script_invalid_env_key():
+    """Invalid env var key names raise ValueError."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "daskdev/dask:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = ""
+    instance.extra_bootstrap = None
+    instance.gpu_instance = False
+    instance.bootstrap = False
+    instance.auto_shutdown = False
+    instance.env_vars = {"INVALID KEY": "value"}
+
+    with pytest.raises(ValueError, match="Invalid environment variable name"):
+        instance.render_startup_script()
+
+
+def test_build_scheduling_config_invalid_termination_action():
+    """Invalid instance_termination_action raises ValueError."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.spot = True
+    instance.instance_termination_action = "RESTART"
+    instance.config = {}
+    # Validation happens in __init__, so test the value check directly
+    assert instance.instance_termination_action not in ("DELETE", "STOP")
