@@ -1,5 +1,6 @@
 import asyncio
 import os
+import shlex
 import uuid
 import json
 
@@ -127,8 +128,13 @@ class GCPInstance(VMInterface):
             instance_termination_action
             or self.config.get("instance_termination_action", "DELETE")
         ).upper()
+        if self.instance_termination_action not in ("DELETE", "STOP"):
+            raise ValueError(
+                f"instance_termination_action must be 'DELETE' or 'STOP', "
+                f"got {self.instance_termination_action!r}"
+            )
 
-        _instance_labels = self.config.get("instance_labels")
+        _instance_labels = self.config.get("instance_labels") or {}
         _instance_labels.update(instance_labels)
         _instance_labels.setdefault("managed-by", "dask-cloudprovider")
         _instance_labels["cluster-uuid"] = self.cluster.uuid
@@ -154,10 +160,21 @@ class GCPInstance(VMInterface):
         ``user-data``.  This is handled by the google-guest-agent which is
         present on all public GCE images (Ubuntu, COS, Debian, etc.),
         avoiding cloud-init datasource detection issues.
+
+        Environment variable keys and values are shell-escaped to prevent
+        injection.  ``extra_bootstrap`` and ``docker_args`` are rendered
+        verbatim — callers are responsible for their content.
         """
         loader = FileSystemLoader([os.path.dirname(os.path.abspath(__file__))])
         environment = Environment(loader=loader)
         template = environment.get_template("startup-script.sh.j2")
+
+        # Shell-escape env var keys and values to prevent injection
+        safe_env_vars = {
+            shlex.quote(str(k)): shlex.quote(str(v))
+            for k, v in (self.env_vars or {}).items()
+        }
+
         return template.render(
             image=self.docker_image,
             command=self.command,
@@ -166,7 +183,7 @@ class GCPInstance(VMInterface):
             gpu_instance=self.gpu_instance,
             bootstrap=self.bootstrap,
             auto_shutdown=self.auto_shutdown,
-            env_vars=self.env_vars or {},
+            env_vars=safe_env_vars,
         )
 
     def create_gcp_config(self):

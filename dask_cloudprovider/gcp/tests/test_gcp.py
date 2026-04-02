@@ -358,9 +358,28 @@ def test_render_startup_script_with_env_vars():
     instance.env_vars = {"FOO": "bar", "OMP_NUM_THREADS": "4"}
 
     script = instance.render_startup_script()
-    assert 'FOO="bar"' in script
-    assert 'OMP_NUM_THREADS="4"' in script
+    assert "FOO=bar" in script
+    assert "OMP_NUM_THREADS=4" in script
     assert "shutdown" not in script
+
+
+def test_render_startup_script_env_vars_shell_escaped():
+    """Environment variable values with shell metacharacters are escaped."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "daskdev/dask:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = ""
+    instance.extra_bootstrap = None
+    instance.gpu_instance = False
+    instance.bootstrap = False
+    instance.auto_shutdown = False
+    instance.env_vars = {"EVIL": '"; rm -rf / #'}
+
+    script = instance.render_startup_script()
+    # shlex.quote wraps the value in single quotes, preventing shell interpretation
+    assert """EVIL='"; rm -rf / #'""" in script
+    # The unquoted form (which would allow injection) must not appear
+    assert 'EVIL="; rm -rf / #' not in script
 
 
 def test_render_startup_script_with_extra_bootstrap():
