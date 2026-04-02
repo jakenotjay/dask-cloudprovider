@@ -416,10 +416,16 @@ def test_render_startup_script_invalid_env_key():
 
 
 def test_build_scheduling_config_invalid_termination_action():
-    """Invalid instance_termination_action raises ValueError."""
-    instance = GCPInstance.__new__(GCPInstance)
-    instance.spot = True
-    instance.instance_termination_action = "RESTART"
-    instance.config = {}
-    # Validation happens in __init__, so test the value check directly
-    assert instance.instance_termination_action not in ("DELETE", "STOP")
+    """Invalid instance_termination_action raises ValueError during init."""
+    from unittest.mock import MagicMock
+
+    mock_cluster = MagicMock()
+    mock_cluster.uuid = "test-uuid"
+    config = dask.config.get("cloudprovider.gcp", {})
+
+    with pytest.raises(ValueError, match="instance_termination_action must be"):
+        GCPInstance(
+            cluster=mock_cluster,
+            config=config,
+            instance_termination_action="RESTART",
+        )
