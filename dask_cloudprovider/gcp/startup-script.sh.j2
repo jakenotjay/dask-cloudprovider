@@ -39,6 +39,13 @@ systemctl restart docker
 {% endfor %}
 {% endif %}
 
+# --- Authenticate Docker with Artifact Registry / GCR ---
+if command -v docker-credential-gcr &> /dev/null; then
+  docker-credential-gcr configure-docker --registries={{ image.split('/')[0] }}
+elif command -v gcloud &> /dev/null; then
+  gcloud auth configure-docker {{ image.split('/')[0] }} --quiet
+fi
+
 # --- Run Dask container ---
 docker run --net=host
 {%- if gpu_instance %} --gpus=all{% endif %}
