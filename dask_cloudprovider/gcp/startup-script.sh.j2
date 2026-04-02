@@ -39,19 +39,6 @@ systemctl restart docker
 {% endfor %}
 {% endif %}
 
-{% if '.' in image.split('/')[0] %}
-# --- Authenticate Docker with private registry ---
-# COS has a read-only root filesystem; use /tmp for Docker config if needed.
-export HOME="${HOME:-/tmp}"
-mkdir -p "$HOME/.docker"
-
-if command -v docker-credential-gcr &> /dev/null; then
-  docker-credential-gcr configure-docker --registries="{{ image.split('/')[0] }}"
-elif command -v gcloud &> /dev/null; then
-  gcloud auth configure-docker "{{ image.split('/')[0] }}" --quiet
-fi
-{% endif %}
-
 # --- Run Dask container ---
 docker run --net=host
 {%- if gpu_instance %} --gpus=all{% endif %}

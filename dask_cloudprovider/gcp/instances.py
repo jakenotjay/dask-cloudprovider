@@ -648,9 +648,7 @@ class GCPCluster(VMCluster):
         Defaults to the default Compute Engine service account for your GCP project.
     instance_scopes: list (optional)
         List of GCP OAuth scopes to assign to the service account on instances.
-        Defaults to ``["https://www.googleapis.com/auth/devstorage.read_write",
-        "https://www.googleapis.com/auth/logging.write",
-        "https://www.googleapis.com/auth/monitoring.write"]``.
+        Defaults to ``["https://www.googleapis.com/auth/cloud-platform"]``.
     public_ingress: bool (optional)
         Whether to assign a public IP address to both the scheduler and worker instances,
         allowing them to be externally accessible, assumes firewall rules for 8786 and 8787 are in place.
