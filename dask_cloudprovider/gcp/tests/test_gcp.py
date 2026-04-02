@@ -278,3 +278,103 @@ async def test_spot_true_passed_to_workers():
 
     cluster = GCPCluster(asynchronous=True, spot=True)
     assert cluster.worker_options["spot"] is True
+
+
+# --- COS image detection unit tests ---
+
+
+def test_is_cos_image_cos_cloud():
+    """COS images from cos-cloud project are detected."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.source_image = "projects/cos-cloud/global/images/family/cos-125-lts"
+    assert instance._is_cos_image() is True
+
+
+def test_is_cos_image_cos_stable():
+    """COS stable image family is detected."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.source_image = "projects/cos-cloud/global/images/cos-stable-121-18867-381-56"
+    assert instance._is_cos_image() is True
+
+
+def test_is_cos_image_ubuntu():
+    """Ubuntu images are not detected as COS."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.source_image = "projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts"
+    assert instance._is_cos_image() is False
+
+
+# --- Startup script rendering unit tests ---
+
+
+def test_render_startup_script_no_bootstrap():
+    """COS images skip Docker installation in startup script."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "daskdev/dask:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = ""
+    instance.extra_bootstrap = None
+    instance.gpu_instance = False
+    instance.bootstrap = False
+    instance.auto_shutdown = True
+    instance.env_vars = {}
+
+    script = instance.render_startup_script()
+    assert "#!/bin/bash" in script
+    assert "docker run" in script
+    assert "daskdev/dask:latest" in script
+    assert "apt-get" not in script
+    assert "curl -fsSL https://get.docker.com" not in script
+
+
+def test_render_startup_script_with_bootstrap():
+    """Ubuntu images include Docker installation in startup script."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "daskdev/dask:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = ""
+    instance.extra_bootstrap = None
+    instance.gpu_instance = False
+    instance.bootstrap = True
+    instance.auto_shutdown = True
+    instance.env_vars = {}
+
+    script = instance.render_startup_script()
+    assert "#!/bin/bash" in script
+    assert "docker run" in script
+    assert "curl -fsSL https://get.docker.com" in script
+
+
+def test_render_startup_script_with_env_vars():
+    """Environment variables are passed to the docker run command."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "daskdev/dask:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = ""
+    instance.extra_bootstrap = None
+    instance.gpu_instance = False
+    instance.bootstrap = False
+    instance.auto_shutdown = False
+    instance.env_vars = {"FOO": "bar", "OMP_NUM_THREADS": "4"}
+
+    script = instance.render_startup_script()
+    assert 'FOO="bar"' in script
+    assert 'OMP_NUM_THREADS="4"' in script
+    assert "shutdown" not in script
+
+
+def test_render_startup_script_with_extra_bootstrap():
+    """Extra bootstrap commands are included in the startup script."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "daskdev/dask:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = ""
+    instance.extra_bootstrap = ["echo hello", "whoami"]
+    instance.gpu_instance = False
+    instance.bootstrap = False
+    instance.auto_shutdown = False
+    instance.env_vars = {}
+
+    script = instance.render_startup_script()
+    assert "echo hello" in script
+    assert "whoami" in script

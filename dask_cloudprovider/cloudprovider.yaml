@@ -95,7 +95,7 @@ cloudprovider:
     image: "ubuntu-20-04-x64" # Operating System image to use
 
   gcp:
-    source_image: "projects/ubuntu-os-cloud/global/images/family/ubuntu-minimal-2204-lts" # the gcp image to use for all instances
+    source_image: "projects/cos-cloud/global/images/family/cos-125-lts" # the gcp image to use for all instances (COS has Docker pre-installed)
     zone: "us-east1-c" # the zone of where to launch the instances
     network: "default" # the network/subnetwork in GCP to use
     network_projectid: null # GCP project id where the network exists

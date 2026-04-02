@@ -1,10 +1,12 @@
 import asyncio
+import os
 import uuid
 import json
 
 from typing import Optional, Any, Dict
 
 import dask
+from jinja2 import Environment, FileSystemLoader
 from dask_cloudprovider.generic.vmcluster import (
     VMCluster,
     VMInterface,
@@ -137,6 +139,36 @@ class GCPInstance(VMInterface):
         self.instance_scopes = instance_scopes or self.config.get("instance_scopes")
         self.public_ingress = public_ingress or self.config.get("public_ingress", True)
 
+        # Auto-detect COS images and skip bootstrap (Docker is pre-installed)
+        if self._is_cos_image():
+            self.bootstrap = False
+
+    def _is_cos_image(self):
+        """Check if the source image is a Container-Optimized OS image."""
+        return "cos-cloud" in self.source_image or "/cos-" in self.source_image
+
+    def render_startup_script(self):
+        """Render a bash startup script for the GCE guest agent.
+
+        Uses GCE's ``startup-script`` metadata key instead of cloud-init
+        ``user-data``.  This is handled by the google-guest-agent which is
+        present on all public GCE images (Ubuntu, COS, Debian, etc.),
+        avoiding cloud-init datasource detection issues.
+        """
+        loader = FileSystemLoader([os.path.dirname(os.path.abspath(__file__))])
+        environment = Environment(loader=loader)
+        template = environment.get_template("startup-script.sh.j2")
+        return template.render(
+            image=self.docker_image,
+            command=self.command,
+            docker_args=self.docker_args,
+            extra_bootstrap=self.extra_bootstrap,
+            gpu_instance=self.gpu_instance,
+            bootstrap=self.bootstrap,
+            auto_shutdown=self.auto_shutdown,
+            env_vars=self.env_vars or {},
+        )
+
     def create_gcp_config(self):
         subnetwork = f"projects/{self.network_projectid}/regions/{self.general_zone}/subnetworks/{self.network}"
         config = {
@@ -183,12 +215,15 @@ class GCPInstance(VMInterface):
             "metadata": {
                 "items": [
                     {
-                        # Startup script is automatically executed by the
-                        # instance upon startup.
                         "key": "google-logging-enabled",
                         "value": "true",
                     },
-                    {"key": "user-data", "value": self.cloud_init},
+                    {
+                        # Executed by the GCE guest agent (not cloud-init).
+                        # Works reliably on all public GCE images.
+                        "key": "startup-script",
+                        "value": self.startup_script,
+                    },
                 ]
             },
             "labels": self.instance_labels,
@@ -249,7 +284,10 @@ class GCPInstance(VMInterface):
         }
 
     async def create_vm(self):
-        self.cloud_init = self.cluster.render_process_cloud_init(self)
+        self.startup_script = self.render_startup_script()
+        if self.cluster.debug:
+            print(f"\nStartup script for {self.name}\n{'=' * 40}\n")
+            print(self.startup_script)
 
         self.gcp_config = self.create_gcp_config()
 
@@ -480,8 +518,12 @@ class GCPCluster(VMCluster):
         The VM machine_type. This will determine the resources available to all workers.
         The default is ``n1-standard-1`` which is 3.75GB RAM and 1 vCPU.
     source_image: str
-        The OS image to use for the VM. Dask Cloudprovider will bootstrap Ubuntu based images automatically.
-        Other images require Docker and for GPUs the NVIDIA Drivers and NVIDIA Docker.
+        The OS image to use for the VM. Container-Optimized OS (COS) images have Docker
+        pre-installed and are recommended for fastest startup. Ubuntu images will have Docker
+        installed automatically during bootstrap.
+
+        For GPU instances, use an Ubuntu image (COS GPU support requires a different driver
+        installation path).
 
         A list of available images can be found with ``gcloud compute images list``
 
@@ -490,7 +532,7 @@ class GCPCluster(VMCluster):
             - The full image name ``projects/<projectid>/global/images/<source_image>``.
             - The full image URI such as those listed in ``gcloud compute images list --uri``.
 
-        The default is ``projects/ubuntu-os-cloud/global/images/family/ubuntu-minimal-2204-lts``.
+        The default is ``projects/cos-cloud/global/images/family/cos-125-lts``.
     docker_image: string (optional)
         The Docker image to run on all instances.
 
@@ -599,7 +641,7 @@ class GCPCluster(VMCluster):
     >>> from dask_cloudprovider.gcp import GCPCluster
     >>> cluster = GCPCluster(n_workers=1)
     Launching cluster with the following configuration:
-    Source Image: projects/ubuntu-os-cloud/global/images/family/ubuntu-minimal-2204-lts
+    Source Image: projects/cos-cloud/global/images/family/cos-125-lts
     Docker Image: daskdev/dask:latest
     Machine Type: n1-standard-1
     Filesytsem Size: 50
@@ -641,7 +683,7 @@ class GCPCluster(VMCluster):
     ...     with Client(cluster) as client:
     ...         print(da.random.random((1000, 1000), chunks=(100, 100)).mean().compute())
     Launching cluster with the following configuration:
-    Source Image: projects/ubuntu-os-cloud/global/images/family/ubuntu-minimal-2204-lts
+    Source Image: projects/cos-cloud/global/images/family/cos-125-lts
     Docker Image: daskdev/dask:latest
     Machine Type: n1-standard-1
     Filesystem Size: 50
