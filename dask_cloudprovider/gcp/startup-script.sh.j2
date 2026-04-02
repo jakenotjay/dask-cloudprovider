@@ -39,12 +39,14 @@ systemctl restart docker
 {% endfor %}
 {% endif %}
 
-# --- Authenticate Docker with Artifact Registry / GCR ---
+{% if '.' in image.split('/')[0] %}
+# --- Authenticate Docker with private registry ---
 if command -v docker-credential-gcr &> /dev/null; then
-  docker-credential-gcr configure-docker --registries={{ image.split('/')[0] }}
+  docker-credential-gcr configure-docker --registries="{{ image.split('/')[0] }}"
 elif command -v gcloud &> /dev/null; then
-  gcloud auth configure-docker {{ image.split('/')[0] }} --quiet
+  gcloud auth configure-docker "{{ image.split('/')[0] }}" --quiet
 fi
+{% endif %}
 
 # --- Run Dask container ---
 docker run --net=host

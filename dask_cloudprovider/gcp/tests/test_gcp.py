@@ -415,6 +415,40 @@ def test_render_startup_script_invalid_env_key():
         instance.render_startup_script()
 
 
+def test_render_startup_script_ar_image_has_auth():
+    """Artifact Registry images include Docker auth configuration."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "europe-west2-docker.pkg.dev/my-project/my-repo/my-image:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = ""
+    instance.extra_bootstrap = None
+    instance.gpu_instance = False
+    instance.bootstrap = False
+    instance.auto_shutdown = True
+    instance.env_vars = {}
+
+    script = instance.render_startup_script()
+    assert "docker-credential-gcr" in script
+    assert '"europe-west2-docker.pkg.dev"' in script
+
+
+def test_render_startup_script_dockerhub_image_no_auth():
+    """Docker Hub images do not include private registry auth."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "daskdev/dask:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = ""
+    instance.extra_bootstrap = None
+    instance.gpu_instance = False
+    instance.bootstrap = False
+    instance.auto_shutdown = True
+    instance.env_vars = {}
+
+    script = instance.render_startup_script()
+    assert "docker-credential-gcr" not in script
+    assert "configure-docker" not in script
+
+
 def test_build_scheduling_config_invalid_termination_action():
     """Invalid instance_termination_action raises ValueError during init."""
     from unittest.mock import MagicMock
