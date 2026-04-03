@@ -486,49 +486,18 @@ def test_render_startup_script_bootstrap_ar_image_installs_credential_helper():
 
 
 def _make_instance(**overrides):
-    """Helper to create a GCPInstance with minimal config for unit tests."""
+    """Helper to create a GCPInstance through __init__ with a mock cluster."""
     from unittest.mock import MagicMock
 
     mock_cluster = MagicMock()
     mock_cluster.uuid = "test-uuid"
     config = dask.config.get("cloudprovider.gcp", {})
 
-    instance = GCPInstance.__new__(GCPInstance)
-    instance.cluster = mock_cluster
-    instance.config = config
-    instance.projectid = "test-project"
-    instance.zone = "us-central1-a"
-    instance.general_zone = "us-central1"
-    instance.name = "test-instance"
-    instance.machine_type = "n1-standard-1"
-    instance.source_image = "projects/cos-cloud/global/images/family/cos-125-lts"
-    instance.filesystem_size = 50
-    instance.disk_type = "pd-balanced"
-    instance.network = "default"
-    instance.network_projectid = "test-project"
-    instance.instance_labels = {"managed-by": "dask-cloudprovider"}
-    instance.service_account = "default"
-    instance.instance_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
-    instance.public_ingress = True
-    instance.spot = False
-    instance.instance_termination_action = "DELETE"
-    instance.on_host_maintenance = "TERMINATE"
-    instance.docker_image = "daskdev/dask:latest"
-    instance.command = "python -m distributed.cli.dask_scheduler"
-    instance.docker_args = ""
-    instance.extra_bootstrap = None
-    instance.gpu_instance = False
-    instance.bootstrap = False
-    instance.auto_shutdown = True
-    instance.env_vars = {}
-    instance.startup_script = instance.render_startup_script()
-
-    tags = overrides.get("network_tags", None)
-    instance.network_tags = (
-        tags if tags is not None
-        else config.get("network_tags", ["http-server", "https-server"])
+    return GCPInstance(
+        cluster=mock_cluster,
+        config=config,
+        **overrides,
     )
-    return instance
 
 
 def test_network_tags_default():
@@ -547,6 +516,12 @@ def test_network_tags_empty_list():
     """Empty list explicitly disables all network tags."""
     instance = _make_instance(network_tags=[])
     assert instance.network_tags == []
+
+
+def test_public_ingress_false():
+    """Passing public_ingress=False is not silently ignored."""
+    instance = _make_instance(public_ingress=False)
+    assert instance.public_ingress is False
 
 
 def test_build_scheduling_config_invalid_termination_action():

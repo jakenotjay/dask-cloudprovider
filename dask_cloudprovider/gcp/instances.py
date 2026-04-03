@@ -147,7 +147,11 @@ class GCPInstance(VMInterface):
         self.general_zone = "-".join(self.zone.split("-")[:2])  # us-east1-c -> us-east1
         self.service_account = service_account or self.config.get("service_account")
         self.instance_scopes = instance_scopes or self.config.get("instance_scopes")
-        self.public_ingress = public_ingress or self.config.get("public_ingress", True)
+        self.public_ingress = (
+            public_ingress
+            if public_ingress is not None
+            else self.config.get("public_ingress", True)
+        )
         self.network_tags = (
             network_tags
             if network_tags is not None
@@ -885,7 +889,7 @@ class GCPCluster(VMCluster):
             "instance_labels": instance_labels or self.config.get("instance_labels"),
             "service_account": service_account or self.config.get("service_account"),
             "instance_scopes": instance_scopes or self.config.get("instance_scopes"),
-            "public_ingress": public_ingress or self.config.get("public_ingress", True),
+            "public_ingress": public_ingress if public_ingress is not None else self.config.get("public_ingress", True),
             "network_tags": network_tags if network_tags is not None else self.config.get("network_tags"),
         }
         self.scheduler_options = {**self.options}
