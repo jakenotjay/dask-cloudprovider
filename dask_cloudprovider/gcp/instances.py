@@ -145,8 +145,12 @@ class GCPInstance(VMInterface):
         self.instance_labels = _instance_labels
 
         self.general_zone = "-".join(self.zone.split("-")[:2])  # us-east1-c -> us-east1
-        self.service_account = service_account or self.config.get("service_account")
-        self.instance_scopes = instance_scopes or self.config.get("instance_scopes")
+        self.service_account = (
+            service_account if service_account is not None else self.config.get("service_account")
+        )
+        self.instance_scopes = (
+            instance_scopes if instance_scopes is not None else self.config.get("instance_scopes")
+        )
         self.public_ingress = (
             public_ingress
             if public_ingress is not None
