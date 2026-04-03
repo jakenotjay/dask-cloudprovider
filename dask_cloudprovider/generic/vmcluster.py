@@ -354,9 +354,9 @@ class VMCluster(SpecCluster):
         )
         return done.result()
 
-    def close(self, *args, **kwargs):
+    def close(self, timeout=None):
         atexit.unregister(getattr(self, "_atexit_close", lambda: None))
-        return super().close(*args, **kwargs)
+        return super().close(timeout)
 
     async def _start(
         self,
@@ -386,6 +386,10 @@ class VMCluster(SpecCluster):
             await super()._start()
 
     def __await__(self):
+        # Derived from SpecCluster.__await__ (distributed 2026.3.0) with the
+        # addition of _wait_for_workers at the end.  Cannot call super().__await__()
+        # because __await__ returns a generator, not a coroutine.  If upstream
+        # SpecCluster.__await__ changes, this must be updated to match.
         async def _():
             if self.status == Status.created:
                 await self._start()

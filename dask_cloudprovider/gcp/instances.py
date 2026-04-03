@@ -160,9 +160,9 @@ class GCPInstance(VMInterface):
         )
 
         # Auto-detect COS images and skip bootstrap (Docker is pre-installed),
-        # but only if the user didn't explicitly pass bootstrap=True.
-        if bootstrap is None and self._is_cos_image():
-            self.bootstrap = False
+        # but only if the user didn't explicitly set bootstrap.
+        if bootstrap is None:
+            self.bootstrap = not self._is_cos_image()
 
     def _is_cos_image(self):
         """Check if the source image is a Container-Optimized OS image."""
@@ -209,7 +209,7 @@ class GCPInstance(VMInterface):
         # (in YAML single-quoted strings, '' is an escaped single quote).
         # In bash, '' is just an empty string.  Convert to shell quoting
         # only around the --spec argument to avoid corrupting other '' sequences.
-        command = re.sub(r"''(\{.*?\})''", r"'\1'", self.command)
+        command = re.sub(r"(--spec\s+)''(\{.*?\})''", r"\1'\2'", self.command)
 
         vpc_cidr = getattr(self, "config", {}).get("vpc_cidr", "10.128.0.0/9")
         ipaddress.ip_network(vpc_cidr, strict=False)  # validates CIDR format
@@ -756,7 +756,7 @@ class GCPCluster(VMCluster):
         filesystem_size=None,
         disk_type=None,
         auto_shutdown=None,
-        bootstrap=True,
+        bootstrap=None,
         preemptible=None,
         spot=None,
         instance_termination_action=None,
