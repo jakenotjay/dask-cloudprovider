@@ -245,7 +245,7 @@ class VMCluster(SpecCluster):
         security: bool = True,
         protocol: str = None,
         debug: bool = False,
-        worker_timeout: "str | float" = "600s",
+        worker_timeout: str | float = "600s",
         **kwargs,
     ):
         if self.scheduler_class is None or self.worker_class is None:
