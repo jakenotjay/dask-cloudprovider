@@ -130,7 +130,8 @@ class GCPInstance(VMInterface):
 
         self.instance_termination_action = (
             instance_termination_action
-            or self.config.get("instance_termination_action", "DELETE")
+            if instance_termination_action is not None
+            else self.config.get("instance_termination_action", "DELETE")
         ).upper()
         if self.instance_termination_action not in ("DELETE", "STOP"):
             raise ValueError(

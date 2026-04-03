@@ -5,6 +5,11 @@ set -euo pipefail
 # Executed by the GCE guest agent via the "startup-script" metadata key.
 # Works reliably on all GCE images (Ubuntu, COS, Debian, etc.).
 
+{% if auto_shutdown %}
+# Ensure VM shuts down on any failure (bootstrap, credential setup, or container crash).
+trap 'shutdown -h now' EXIT
+{% endif %}
+
 {% if bootstrap %}
 # --- Bootstrap: install Docker ---
 export DEBIAN_FRONTEND=noninteractive
@@ -75,8 +80,4 @@ docker-credential-gcr configure-docker --registries="{{ image.split('/')[0] }}"
 # --- Run Dask container ---
 # NOTE: extra_bootstrap commands are rendered verbatim — callers must not pass
 # untrusted input.  The template does not sanitize them.
-{% if auto_shutdown %}
-# Ensure VM shuts down even if docker run fails (OOM, crash, etc.)
-trap 'shutdown -h now' EXIT
-{% endif %}
 docker run --net=host{% if gpu_instance %} --gpus=all{% endif %}{% for key in env_vars %} -e {{ key }}={{ env_vars[key] }}{% endfor %}{% if docker_args %} {{ docker_args }}{% endif %} {{ image }} {{ command }}
