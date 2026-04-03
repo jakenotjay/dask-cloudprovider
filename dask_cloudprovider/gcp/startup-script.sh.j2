@@ -39,6 +39,18 @@ systemctl restart docker
 {% endfor %}
 {% endif %}
 
+{% if not bootstrap %}
+# --- Open local firewall for container ports ---
+# COS has a restrictive iptables INPUT policy (DROP) that blocks non-standard
+# ports even when VPC firewall rules allow them. The VPC firewall remains the
+# security boundary; this just ensures traffic that passes VPC rules reaches
+# the container running with --net=host.
+if command -v iptables &> /dev/null && iptables -S INPUT 2>/dev/null | grep -q -- "-P INPUT DROP"; then
+  iptables -A INPUT -p tcp --dport 8786 -j ACCEPT
+  iptables -A INPUT -p tcp --dport 8787 -j ACCEPT
+fi
+{% endif %}
+
 {% if image.split('/')[0].endswith('.pkg.dev') or image.split('/')[0].endswith('.gcr.io') %}
 # --- Configure Docker credentials for GCP registry ---
 # COS only pre-configures docker-credential-gcr for gcr.io, not *.pkg.dev.
