@@ -469,10 +469,13 @@ class GCPWorker(WorkerMixin, GCPInstance):
     def __init__(self, scheduler: str, *args, **kwargs):
         # Workers inside the VPC must connect to the scheduler's internal IP,
         # not the external address that SpecCluster passes in.
+        cluster = kwargs.get("cluster")
+        if cluster is None:
+            raise ValueError("GCPWorker requires a 'cluster' keyword argument")
         internal_scheduler = (
-            f"{kwargs['cluster'].protocol}"
-            f"://{kwargs['cluster'].scheduler_internal_ip}"
-            f":{kwargs['cluster'].scheduler_port}"
+            f"{cluster.protocol}"
+            f"://{cluster.scheduler_internal_ip}"
+            f":{cluster.scheduler_port}"
         )
         super().__init__(internal_scheduler, *args, **kwargs)
 

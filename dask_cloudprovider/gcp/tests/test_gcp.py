@@ -6,6 +6,7 @@ from dask_cloudprovider.gcp.instances import (
     GCPCompute,
     GCPCredentialsError,
     GCPInstance,
+    GCPWorker,
 )
 from dask.distributed import Client
 from distributed.core import Status
@@ -583,3 +584,52 @@ def test_build_scheduling_config_invalid_termination_action():
             config=config,
             instance_termination_action="RESTART",
         )
+
+
+def _make_worker(**overrides):
+    """Helper to create a GCPWorker with a mock cluster."""
+    from unittest.mock import MagicMock
+
+    mock_cluster = MagicMock()
+    mock_cluster.uuid = "test-uuid"
+    mock_cluster.protocol = "tcp"
+    mock_cluster.scheduler_internal_ip = "10.128.0.5"
+    mock_cluster.scheduler_port = 8786
+    config = dask.config.get("cloudprovider.gcp", {})
+
+    return GCPWorker(
+        scheduler="tcp://35.200.0.1:8786",
+        cluster=mock_cluster,
+        config=config,
+        worker_class="distributed.cli.dask_worker",
+        **overrides,
+    )
+
+
+def test_worker_uses_internal_scheduler_address():
+    """GCPWorker connects to internal scheduler IP, not the external address."""
+    worker = _make_worker()
+    assert worker.scheduler == "tcp://10.128.0.5:8786"
+    assert "10.128.0.5" in worker.command
+    assert "35.200.0.1" not in worker.command
+
+
+def test_worker_command_built_by_mixin():
+    """WorkerMixin sets self.command with dask_spec and worker name."""
+    worker = _make_worker()
+    assert worker.command is not None
+    assert "distributed.cli.dask_spec" in worker.command
+    assert worker.name in worker.command
+    assert worker.name.startswith("dask-test-uuid-worker-")
+
+
+def test_worker_options_forwarded():
+    """worker_options are embedded in the dask_spec --spec JSON."""
+    worker = _make_worker(worker_options={"nthreads": 4})
+    assert '"nthreads": 4' in worker.command
+
+
+def test_worker_requires_cluster_kwarg():
+    """GCPWorker raises ValueError when cluster kwarg is missing."""
+    with pytest.raises(ValueError, match="requires a 'cluster'"):
+        GCPWorker(scheduler="tcp://10.0.0.1:8786")
