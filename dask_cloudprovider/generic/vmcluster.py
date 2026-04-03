@@ -355,7 +355,7 @@ class VMCluster(SpecCluster):
         return done.result()
 
     def close(self, *args, **kwargs):
-        atexit.unregister(self._atexit_close)
+        atexit.unregister(getattr(self, "_atexit_close", lambda: None))
         return super().close(*args, **kwargs)
 
     async def _start(

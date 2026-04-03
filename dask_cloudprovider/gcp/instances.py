@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import os
 import re
 import shlex
@@ -208,9 +209,10 @@ class GCPInstance(VMInterface):
         # (in YAML single-quoted strings, '' is an escaped single quote).
         # In bash, '' is just an empty string.  Convert to shell quoting
         # only around the --spec argument to avoid corrupting other '' sequences.
-        command = re.sub(r"''(\{.*\})''", r"'\1'", self.command)
+        command = re.sub(r"''(\{.*?\})''", r"'\1'", self.command)
 
         vpc_cidr = getattr(self, "config", {}).get("vpc_cidr", "10.128.0.0/9")
+        ipaddress.ip_network(vpc_cidr, strict=False)  # validates CIDR format
 
         return template.render(
             image=self.docker_image,
