@@ -52,7 +52,7 @@ if command -v iptables &> /dev/null && iptables -S INPUT 2>/dev/null | grep -q -
 fi
 {% endif %}
 
-{% if image.split('/')[0].endswith('.pkg.dev') or image.split('/')[0] == 'gcr.io' or image.split('/')[0].endswith('.gcr.io') %}
+{% if image.split('/')[0].endswith('.pkg.dev') or 'gcr.io' in image.split('/')[0] %}
 # --- Configure Docker credentials for GCP registry ---
 # COS only pre-configures docker-credential-gcr for gcr.io, not *.pkg.dev.
 {% if bootstrap %}
@@ -75,9 +75,8 @@ docker-credential-gcr configure-docker --registries="{{ image.split('/')[0] }}"
 # --- Run Dask container ---
 # NOTE: extra_bootstrap commands are rendered verbatim — callers must not pass
 # untrusted input.  The template does not sanitize them.
-docker run --net=host{% if gpu_instance %} --gpus=all{% endif %}{% for key in env_vars %} -e {{ key }}={{ env_vars[key] }}{% endfor %}{% if docker_args %} {{ docker_args }}{% endif %} {{ image }} {{ command }}
-
 {% if auto_shutdown %}
-# Shutdown when the container exits
-shutdown -h now
+# Ensure VM shuts down even if docker run fails (OOM, crash, etc.)
+trap 'shutdown -h now' EXIT
 {% endif %}
+docker run --net=host{% if gpu_instance %} --gpus=all{% endif %}{% for key in env_vars %} -e {{ key }}={{ env_vars[key] }}{% endfor %}{% if docker_args %} {{ docker_args }}{% endif %} {{ image }} {{ command }}

@@ -207,7 +207,7 @@ class GCPInstance(VMInterface):
         # (in YAML single-quoted strings, '' is an escaped single quote).
         # In bash, '' is just an empty string.  Convert to shell quoting
         # only around the --spec argument to avoid corrupting other '' sequences.
-        command = re.sub(r"(--spec\s+)''(\{.*\})''$", r"\1'\2'", self.command)
+        command = re.sub(r"(--spec\s+)''(\{.*\})''\Z", r"\1'\2'", self.command.strip())
 
         vpc_cidr = getattr(self, "config", {}).get("vpc_cidr", "10.128.0.0/9")
         ipaddress.ip_network(vpc_cidr, strict=False)  # validates CIDR format
@@ -876,9 +876,9 @@ class GCPCluster(VMCluster):
                 if instance_termination_action is not None
                 else self.config.get("instance_termination_action")
             ),
-            "instance_labels": instance_labels or self.config.get("instance_labels"),
-            "service_account": service_account or self.config.get("service_account"),
-            "instance_scopes": instance_scopes or self.config.get("instance_scopes"),
+            "instance_labels": instance_labels if instance_labels is not None else self.config.get("instance_labels"),
+            "service_account": service_account if service_account is not None else self.config.get("service_account"),
+            "instance_scopes": instance_scopes if instance_scopes is not None else self.config.get("instance_scopes"),
             "public_ingress": public_ingress if public_ingress is not None else self.config.get("public_ingress", True),
             "network_tags": network_tags if network_tags is not None else self.config.get("network_tags"),
         }
