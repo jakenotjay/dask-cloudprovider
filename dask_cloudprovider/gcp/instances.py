@@ -3,7 +3,6 @@ import os
 import re
 import shlex
 import uuid
-import json
 
 from typing import Optional, Any, Dict
 
@@ -15,6 +14,7 @@ from dask_cloudprovider.generic.vmcluster import (
     VMCluster,
     VMInterface,
     SchedulerMixin,
+    WorkerMixin,
 )
 from dask_cloudprovider.gcp.utils import build_request, is_inside_gce
 
@@ -463,62 +463,23 @@ class GCPScheduler(SchedulerMixin, GCPInstance):
         self.cluster.scheduler_port = self.port
 
 
-class GCPWorker(GCPInstance):
-    """Worker running in an GCP instance."""
+class GCPWorker(WorkerMixin, GCPInstance):
+    """Worker running in a GCP instance."""
 
-    def __init__(
-        self,
-        scheduler: str,
-        *args,
-        worker_class: str = "distributed.cli.dask_worker",
-        worker_options: dict = {},
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.scheduler = scheduler
-        self.worker_class = worker_class
-        self.name = f"dask-{self.cluster.uuid}-worker-{str(uuid.uuid4())[:8]}"
-        proto, ip, port = (
-            self.cluster.protocol,
-            self.cluster.scheduler_internal_ip,
-            self.cluster.scheduler_port,
+    def __init__(self, scheduler: str, *args, **kwargs):
+        # Workers inside the VPC must connect to the scheduler's internal IP,
+        # not the external address that SpecCluster passes in.
+        internal_scheduler = (
+            f"{kwargs['cluster'].protocol}"
+            f"://{kwargs['cluster'].scheduler_internal_ip}"
+            f":{kwargs['cluster'].scheduler_port}"
         )
-        internal_scheduler = f"{proto}://{ip}:{port}"
-        self.command = " ".join(
-            [
-                self.set_env,
-                "python",
-                "-m",
-                "distributed.cli.dask_spec",
-                internal_scheduler,
-                "--spec",
-                "''%s''"  # in yaml double single quotes escape the single quote
-                % json.dumps(
-                    {
-                        "cls": self.worker_class,
-                        "opts": {
-                            **worker_options,
-                            "name": self.name,
-                        },
-                    }
-                ),
-            ]
-        )
+        super().__init__(internal_scheduler, *args, **kwargs)
 
     async def start(self):
-        await super().start()
-        await self.start_worker()
-
-    async def start_worker(self):
-        self.cluster._log("Creating worker instance")
         self.cluster._log(f"Worker GPU Count: {self.ngpus}")
         self.cluster._log(f"Worker GPU Type: {self.gpu_type}")
-        self.internal_ip, self.external_ip = await self.create_vm()
-        if self.public_ingress:
-            # scheduler is publicly available
-            self.address = self.external_ip
-        else:
-            self.address = self.internal_ip
+        await super().start()
 
 
 class GCPCluster(VMCluster):
