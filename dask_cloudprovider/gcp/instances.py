@@ -148,8 +148,10 @@ class GCPInstance(VMInterface):
         self.service_account = service_account or self.config.get("service_account")
         self.instance_scopes = instance_scopes or self.config.get("instance_scopes")
         self.public_ingress = public_ingress or self.config.get("public_ingress", True)
-        self.network_tags = network_tags or self.config.get(
-            "network_tags", ["http-server", "https-server"]
+        self.network_tags = (
+            network_tags
+            if network_tags is not None
+            else self.config.get("network_tags", ["http-server", "https-server"])
         )
 
         # Auto-detect COS images and skip bootstrap (Docker is pre-installed)
@@ -884,7 +886,7 @@ class GCPCluster(VMCluster):
             "service_account": service_account or self.config.get("service_account"),
             "instance_scopes": instance_scopes or self.config.get("instance_scopes"),
             "public_ingress": public_ingress or self.config.get("public_ingress", True),
-            "network_tags": network_tags or self.config.get("network_tags"),
+            "network_tags": network_tags if network_tags is not None else self.config.get("network_tags"),
         }
         self.scheduler_options = {**self.options}
         self.scheduler_options["machine_type"] = self.scheduler_machine_type
