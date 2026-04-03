@@ -355,7 +355,8 @@ class VMCluster(SpecCluster):
         return done.result()
 
     def close(self, timeout=None):
-        # Signature pinned to SpecCluster.close(timeout=None) from distributed 2026.3.0.
+        # Signature pinned to SpecCluster.close(timeout=None) from distributed
+        # 2026.3.0.  If updating distributed, verify SpecCluster.close() signature.
         atexit.unregister(getattr(self, "_atexit_close", lambda: None))
         return super().close(timeout)
 

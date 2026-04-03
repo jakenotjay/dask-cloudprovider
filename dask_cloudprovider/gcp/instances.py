@@ -207,7 +207,7 @@ class GCPInstance(VMInterface):
         # (in YAML single-quoted strings, '' is an escaped single quote).
         # In bash, '' is just an empty string.  Convert to shell quoting
         # only around the --spec argument to avoid corrupting other '' sequences.
-        command = re.sub(r"(--spec\s+)''(\{.*?\})''", r"\1'\2'", self.command)
+        command = re.sub(r"(--spec\s+)''(\{.*\})''", r"\1'\2'", self.command)
 
         vpc_cidr = getattr(self, "config", {}).get("vpc_cidr", "10.128.0.0/9")
         ipaddress.ip_network(vpc_cidr, strict=False)  # validates CIDR format
@@ -591,7 +591,7 @@ class GCPCluster(VMCluster):
     filesystem_size: int (optional)
         The VM filesystem size in GB. Defaults to ``50``.
     disk_type: str (optional)
-        Type of disk to use. Default is ``pd-standard``.
+        Type of disk to use. Default is ``pd-balanced``.
         You can see a list of disks available in each zone with ``gcloud compute disk-types list``.
     on_host_maintenance: str (optional)
         The Host Maintenance GCP option.  Defaults to ``TERMINATE``.

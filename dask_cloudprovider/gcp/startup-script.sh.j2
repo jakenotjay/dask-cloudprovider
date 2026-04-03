@@ -52,7 +52,7 @@ if command -v iptables &> /dev/null && iptables -S INPUT 2>/dev/null | grep -q -
 fi
 {% endif %}
 
-{% if image.split('/')[0].endswith('.pkg.dev') or image.split('/')[0].endswith('.gcr.io') %}
+{% if image.split('/')[0].endswith('.pkg.dev') or image.split('/')[0] == 'gcr.io' or image.split('/')[0].endswith('.gcr.io') %}
 # --- Configure Docker credentials for GCP registry ---
 # COS only pre-configures docker-credential-gcr for gcr.io, not *.pkg.dev.
 {% if bootstrap %}
