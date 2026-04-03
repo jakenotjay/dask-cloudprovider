@@ -116,6 +116,9 @@ cloudprovider:
     disk_type: "pd-balanced" # type of disk to use: pd-standard, pd-balanced, pd-ssd
     docker_image: "daskdev/dask:latest" # docker image to use
     auto_shutdown: true # Shutdown instances automatically if the scheduler or worker services time out.
+    network_tags: # GCP network tags applied to all instances (used for firewall rule targeting)
+      - "http-server"
+      - "https-server"
     public_ingress: true # configure the scheduler to be externally accessible.  This assumes firefwall rules for 8787 and 8786
     instance_labels:
       container_vm: "dask-cloudprovider"

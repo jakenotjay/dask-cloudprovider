@@ -76,6 +76,7 @@ class GCPInstance(VMInterface):
         service_account=None,
         instance_scopes=None,
         public_ingress=None,
+        network_tags=None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -147,6 +148,9 @@ class GCPInstance(VMInterface):
         self.service_account = service_account or self.config.get("service_account")
         self.instance_scopes = instance_scopes or self.config.get("instance_scopes")
         self.public_ingress = public_ingress or self.config.get("public_ingress", True)
+        self.network_tags = network_tags or self.config.get(
+            "network_tags", ["http-server", "https-server"]
+        )
 
         # Auto-detect COS images and skip bootstrap (Docker is pre-installed)
         if self._is_cos_image():
@@ -200,7 +204,7 @@ class GCPInstance(VMInterface):
             "name": self.name,
             "machineType": f"zones/{self.zone}/machineTypes/{self.machine_type}",
             "displayDevice": {"enableDisplay": "false"},
-            "tags": {"items": ["http-server", "https-server"]},
+            "tags": {"items": self.network_tags},
             # Specify the boot disk and the image to use as a source.
             "disks": [
                 {
@@ -655,6 +659,9 @@ class GCPCluster(VMCluster):
         The ``cloud-platform.read-only`` scope is needed for pulling images
         from Artifact Registry (``*.pkg.dev``). For broader access, set to
         ``["https://www.googleapis.com/auth/cloud-platform"]``.
+    network_tags: list (optional)
+        GCP network tags to apply to all instances. These are used to match firewall
+        rules. Defaults to ``["http-server", "https-server"]``.
     public_ingress: bool (optional)
         Whether to assign a public IP address to both the scheduler and worker instances,
         allowing them to be externally accessible, assumes firewall rules for 8786 and 8787 are in place.
@@ -764,6 +771,7 @@ class GCPCluster(VMCluster):
         service_account=None,
         instance_scopes=None,
         public_ingress=None,
+        network_tags=None,
         service_account_credentials: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
@@ -876,6 +884,7 @@ class GCPCluster(VMCluster):
             "service_account": service_account or self.config.get("service_account"),
             "instance_scopes": instance_scopes or self.config.get("instance_scopes"),
             "public_ingress": public_ingress or self.config.get("public_ingress", True),
+            "network_tags": network_tags or self.config.get("network_tags"),
         }
         self.scheduler_options = {**self.options}
         self.scheduler_options["machine_type"] = self.scheduler_machine_type
