@@ -106,7 +106,6 @@ class GCPInstance(VMInterface):
         )
         self.gpu_type = gpu_type or self.config.get("gpu_type")
         self.gpu_instance = gpu_instance
-        self.bootstrap = bootstrap
         self.extra_bootstrap = extra_bootstrap
         self.auto_shutdown = auto_shutdown
         self.preemptible = preemptible
@@ -161,8 +160,7 @@ class GCPInstance(VMInterface):
 
         # Auto-detect COS images and skip bootstrap (Docker is pre-installed),
         # but only if the user didn't explicitly set bootstrap.
-        if bootstrap is None:
-            self.bootstrap = not self._is_cos_image()
+        self.bootstrap = bootstrap if bootstrap is not None else (not self._is_cos_image())
 
     def _is_cos_image(self):
         """Check if the source image is a Container-Optimized OS image."""
