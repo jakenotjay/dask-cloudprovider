@@ -12,6 +12,7 @@ from distributed.scheduler import Scheduler as _Scheduler
 from distributed.security import Security
 from distributed.deploy.spec import SpecCluster, ProcessInterface
 from distributed.utils import warn_on_duration, cli_keywords
+from distributed.deploy.spec import _wrap_awaitable
 
 from dask_cloudprovider.utils.socket import is_socket_open
 from dask_cloudprovider.utils.config_helper import serialize_custom_config
@@ -367,8 +368,10 @@ class VMCluster(SpecCluster):
             await self._correct_state()
             if self.workers:
                 await asyncio.wait(
-                    [asyncio.create_task(asyncio.ensure_future(w))
-                     for w in self.workers.values()]
+                    [
+                        asyncio.create_task(_wrap_awaitable(w))
+                        for w in self.workers.values()
+                    ]
                 )
             # Wait for workers to actually register with the scheduler,
             # since VMs need time to boot, pull images, and start dask.

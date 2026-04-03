@@ -116,3 +116,35 @@ async def test_custom_worker_timeout():
 
     mock_wait.assert_called_once_with(1, timeout=120)
     await cluster.close()
+
+
+class _FakeWorker:
+    """Stand-in for a worker ProcessInterface: awaitable."""
+    def __init__(self):
+        self.awaited = False
+
+    def __await__(self):
+        async def _mark():
+            self.awaited = True
+        return _mark().__await__()
+
+
+@pytest.mark.asyncio
+async def test_await_with_existing_workers():
+    """VMCluster.__await__ correctly awaits workers in self.workers dict."""
+    cluster = DummyCluster(n_workers=2, asynchronous=True)
+    cluster.status = Status.running
+    cluster.scheduler = _FakeScheduler()
+    cluster._correct_state = AsyncMock()
+
+    w1, w2 = _FakeWorker(), _FakeWorker()
+    cluster.workers = {"w1": w1, "w2": w2}
+
+    with patch.object(
+        VMCluster, "_wait_for_workers", new_callable=AsyncMock
+    ):
+        await cluster
+
+    assert w1.awaited
+    assert w2.awaited
+    await cluster.close()
