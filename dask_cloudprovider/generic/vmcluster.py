@@ -245,6 +245,7 @@ class VMCluster(SpecCluster):
         security: bool = True,
         protocol: str = None,
         debug: bool = False,
+        worker_timeout: str = "600s",
         **kwargs,
     ):
         if self.scheduler_class is None or self.worker_class is None:
@@ -252,6 +253,7 @@ class VMCluster(SpecCluster):
                 "VMCluster is not intended to be used directly. See docstring for more info."
             )
         self._n_workers = n_workers
+        self._worker_timeout = worker_timeout
 
         if not security:
             self.security = None
@@ -350,6 +352,11 @@ class VMCluster(SpecCluster):
             "Hang tight! ",
         ):
             await super()._start()
+
+        if self._n_workers:
+            await self._wait_for_workers(
+                self._n_workers, timeout=self._worker_timeout
+            )
 
     def render_process_cloud_init(self, process):
         return self.render_cloud_init(
