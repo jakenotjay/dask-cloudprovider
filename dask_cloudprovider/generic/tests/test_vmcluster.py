@@ -148,3 +148,22 @@ async def test_await_with_existing_workers():
     assert w1.awaited
     assert w2.awaited
     await cluster.close()
+
+
+@pytest.mark.asyncio
+async def test_atexit_handler_registered():
+    """VMCluster registers an atexit handler that calls close()."""
+    cluster = DummyCluster(asynchronous=True)
+    assert hasattr(cluster, "_atexit_close")
+    assert callable(cluster._atexit_close)
+    await cluster.close()
+
+
+@pytest.mark.asyncio
+async def test_atexit_handler_noop_when_closed():
+    """atexit handler is a no-op if the cluster was already closed."""
+    cluster = DummyCluster(asynchronous=True)
+    await cluster.close()
+    assert cluster.status == Status.closed
+    # Should not raise
+    cluster._atexit_close()

@@ -110,6 +110,26 @@ async def test_create_cluster():
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(600)
+@pytest.mark.external
+async def test_single_worker_joins_cluster():
+    """Smoke test: one scheduler + one worker, verify the worker registers."""
+    skip_without_credentials()
+
+    async with GCPCluster(
+        n_workers=1,
+        asynchronous=True,
+        security=True,
+    ) as cluster:
+        assert cluster.status == Status.running
+
+        async with Client(cluster, asynchronous=True) as client:
+            await client.wait_for_workers(1, timeout=300)
+            info = client.scheduler_info()
+            assert len(info["workers"]) == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.timeout(1200)
 @pytest.mark.external
 async def test_create_spot_cluster():
@@ -627,6 +647,16 @@ def test_worker_options_forwarded():
     """worker_options are embedded in the dask_spec --spec JSON."""
     worker = _make_worker(worker_options={"nthreads": 4})
     assert '"nthreads": 4' in worker.command
+
+
+def test_worker_startup_script_has_shell_quoted_spec():
+    """render_startup_script converts YAML ''...'' quoting to shell '...' quoting."""
+    worker = _make_worker()
+    script = worker.render_startup_script()
+    # The spec JSON should be shell-quoted with single quotes, not YAML ''...''
+    assert "''\"" not in script, "YAML double-single-quote escaping leaked into bash"
+    # Should have proper shell quoting: '{"cls": ...}'
+    assert """--spec '{"cls":""" in script
 
 
 def test_worker_requires_cluster_kwarg():

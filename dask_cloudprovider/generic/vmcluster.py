@@ -1,7 +1,10 @@
 import asyncio
+import atexit
 import json
+import logging
 import os
 import uuid
+import weakref
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -311,6 +314,24 @@ class VMCluster(SpecCluster):
         self.uuid = str(uuid.uuid4())[:8]
 
         super().__init__(**kwargs, security=self.security)
+
+        # Register an atexit handler so that worker VMs are destroyed if the
+        # process exits without explicitly closing the cluster (e.g. Ctrl-C,
+        # unhandled exception, or client crash).  Uses a weak reference so
+        # the handler doesn't prevent garbage collection.
+        weakself = weakref.ref(self)
+        def _atexit_close():
+            cluster = weakself()
+            if cluster is None or cluster.status == Status.closed:
+                return
+            try:
+                cluster.close(timeout=60)
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "Failed to clean up cluster VMs during exit", exc_info=True
+                )
+        atexit.register(_atexit_close)
+        self._atexit_close = _atexit_close  # prevent deregistration by GC
 
         # In synchronous mode, SpecCluster.__init__ already called _start()
         # and _correct_state() which created worker VMs. Wait for them to

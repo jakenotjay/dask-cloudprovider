@@ -203,9 +203,14 @@ class GCPInstance(VMInterface):
         except (ValueError, IndexError):
             dashboard_port = 8787
 
+        # WorkerMixin wraps the --spec JSON in '' pairs for YAML escaping
+        # (in YAML single-quoted strings, '' is an escaped single quote).
+        # In bash, '' is just an empty string.  Convert to shell quoting.
+        command = self.command.replace("''", "'")
+
         return template.render(
             image=self.docker_image,
-            command=self.command,
+            command=command,
             docker_args=self.docker_args,
             extra_bootstrap=self.extra_bootstrap,
             gpu_instance=self.gpu_instance,
