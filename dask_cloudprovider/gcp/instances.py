@@ -215,11 +215,9 @@ class GCPInstance(VMInterface):
         cmd = self.command.strip()
         spec_prefix = "--spec ''"
         idx = cmd.find(spec_prefix)
-        if idx >= 0:
-            # Replace leading '' after --spec and trailing '' at end of command
-            cmd = cmd[:idx] + "--spec '" + cmd[idx + len(spec_prefix):]
-            if cmd.endswith("''"):
-                cmd = cmd[:-2] + "'"
+        if idx >= 0 and cmd.endswith("''"):
+            # Replace both leading '' after --spec and trailing '' atomically
+            cmd = cmd[:idx] + "--spec '" + cmd[idx + len(spec_prefix):-2] + "'"
         command = cmd
 
         vpc_cidr = getattr(self, "config", {}).get("vpc_cidr", "10.128.0.0/9")
