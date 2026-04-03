@@ -525,7 +525,7 @@ def test_public_ingress_false():
 
 
 def test_render_startup_script_cos_has_iptables():
-    """COS (non-bootstrap) images set iptables INPUT policy to ACCEPT."""
+    """COS (non-bootstrap) images open firewall for VPC and scheduler ports."""
     instance = GCPInstance.__new__(GCPInstance)
     instance.docker_image = "daskdev/dask:latest"
     instance.command = "python -m distributed.cli.dask_scheduler"
@@ -537,7 +537,33 @@ def test_render_startup_script_cos_has_iptables():
     instance.env_vars = {}
 
     script = instance.render_startup_script()
-    assert "iptables -P INPUT ACCEPT" in script
+    # Guard clause checks for iptables and DROP policy
+    assert "command -v iptables" in script
+    assert '"-P INPUT DROP"' in script
+    # VPC CIDR rule for internal Dask traffic
+    assert "iptables -A INPUT -s 10.128.0.0/9 -j ACCEPT" in script
+    # Scheduler/dashboard ports for external access
+    assert "iptables -A INPUT -p tcp --dport 8786" in script
+    assert "iptables -A INPUT -p tcp --dport 8787" in script
+
+
+def test_render_startup_script_cos_custom_port_iptables():
+    """Custom scheduler port propagates to iptables rules on COS."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "daskdev/dask:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = ""
+    instance.extra_bootstrap = None
+    instance.gpu_instance = False
+    instance.bootstrap = False
+    instance.auto_shutdown = True
+    instance.env_vars = {}
+    instance.port = 9786
+    instance._scheduler_options = {"dashboard_address": ":9999"}
+
+    script = instance.render_startup_script()
+    assert "iptables -A INPUT -p tcp --dport 9786" in script
+    assert "iptables -A INPUT -p tcp --dport 9999" in script
 
 
 def test_render_startup_script_bootstrap_no_iptables():
