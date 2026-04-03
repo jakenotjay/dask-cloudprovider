@@ -211,8 +211,16 @@ class GCPInstance(VMInterface):
         # WorkerMixin wraps the --spec JSON in '' pairs for YAML escaping
         # (in YAML single-quoted strings, '' is an escaped single quote).
         # In bash, '' is just an empty string.  Convert to shell quoting
-        # only around the --spec argument to avoid corrupting other '' sequences.
-        command = re.sub(r"(--spec\s+)''(\{.*\})''\Z", r"\1'\2'", self.command.strip())
+        # only around the --spec argument.
+        cmd = self.command.strip()
+        spec_prefix = "--spec ''"
+        idx = cmd.find(spec_prefix)
+        if idx >= 0:
+            # Replace leading '' after --spec and trailing '' at end of command
+            cmd = cmd[:idx] + "--spec '" + cmd[idx + len(spec_prefix):]
+            if cmd.endswith("''"):
+                cmd = cmd[:-2] + "'"
+        command = cmd
 
         vpc_cidr = getattr(self, "config", {}).get("vpc_cidr", "10.128.0.0/9")
         ipaddress.ip_network(vpc_cidr, strict=False)  # validates CIDR format
