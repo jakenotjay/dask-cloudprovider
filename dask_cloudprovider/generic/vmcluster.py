@@ -311,6 +311,12 @@ class VMCluster(SpecCluster):
 
         super().__init__(**kwargs, security=self.security)
 
+        # In synchronous mode, SpecCluster.__init__ already called _start()
+        # and _correct_state() which created worker VMs. Wait for them to
+        # actually register with the scheduler before returning.
+        if not self.asynchronous and self._n_workers:
+            self.sync(self._wait_for_workers, self._n_workers, timeout=self._worker_timeout)
+
     async def call_async(self, f, *args, **kwargs):
         """Run a blocking function in a thread as a coroutine.
 
@@ -353,10 +359,26 @@ class VMCluster(SpecCluster):
         ):
             await super()._start()
 
-        if self._n_workers:
-            await self._wait_for_workers(
-                self._n_workers, timeout=self._worker_timeout
-            )
+    def __await__(self):
+        async def _():
+            if self.status == Status.created:
+                await self._start()
+            await self.scheduler
+            await self._correct_state()
+            if self.workers:
+                await asyncio.wait(
+                    [asyncio.create_task(asyncio.ensure_future(w))
+                     for w in self.workers.values()]
+                )
+            # Wait for workers to actually register with the scheduler,
+            # since VMs need time to boot, pull images, and start dask.
+            if self._n_workers:
+                await self._wait_for_workers(
+                    self._n_workers, timeout=self._worker_timeout
+                )
+            return self
+
+        return _().__await__()
 
     def render_process_cloud_init(self, process):
         return self.render_cloud_init(

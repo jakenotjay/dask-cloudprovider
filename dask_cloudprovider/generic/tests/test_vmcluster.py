@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, patch
 
 from distributed.deploy.spec import SpecCluster
 
+from distributed.core import Status
+
 from dask_cloudprovider.generic.vmcluster import VMCluster, VMInterface
 
 
@@ -58,31 +60,45 @@ async def test_call_async():
     await cluster.close()
 
 
+class _FakeScheduler:
+    """Stand-in for a scheduler ProcessInterface: awaitable and closable."""
+    def __await__(self):
+        yield  # make it a generator so await works
+    async def close(self):
+        pass
+
+
+def _patch_cluster_for_await(cluster):
+    """Mock internals so __await__ runs without real cluster infrastructure."""
+    cluster.status = Status.running  # skip _start()
+    cluster.scheduler = _FakeScheduler()
+    cluster._correct_state = AsyncMock()  # skip worker VM creation
+    cluster.workers = {}  # no real workers to await
+
+
 @pytest.mark.asyncio
-async def test_start_waits_for_workers():
-    """VMCluster._start() waits for workers after creating VMs."""
+async def test_await_waits_for_workers():
+    """VMCluster.__await__ waits for workers after VMs are created."""
     cluster = DummyCluster(n_workers=3, asynchronous=True)
+    _patch_cluster_for_await(cluster)
     with patch.object(
-        SpecCluster, "_start", new_callable=AsyncMock
-    ), patch.object(
         VMCluster, "_wait_for_workers", new_callable=AsyncMock
     ) as mock_wait:
-        await cluster._start()
+        await cluster
 
     mock_wait.assert_called_once_with(3, timeout="600s")
     await cluster.close()
 
 
 @pytest.mark.asyncio
-async def test_start_skips_wait_with_zero_workers():
-    """VMCluster._start() skips waiting when n_workers=0."""
+async def test_await_skips_wait_with_zero_workers():
+    """VMCluster.__await__ skips waiting when n_workers=0."""
     cluster = DummyCluster(n_workers=0, asynchronous=True)
+    _patch_cluster_for_await(cluster)
     with patch.object(
-        SpecCluster, "_start", new_callable=AsyncMock
-    ), patch.object(
         VMCluster, "_wait_for_workers", new_callable=AsyncMock
     ) as mock_wait:
-        await cluster._start()
+        await cluster
 
     mock_wait.assert_not_called()
     await cluster.close()
@@ -92,12 +108,11 @@ async def test_start_skips_wait_with_zero_workers():
 async def test_custom_worker_timeout():
     """Custom worker_timeout is forwarded to _wait_for_workers."""
     cluster = DummyCluster(n_workers=1, worker_timeout=120, asynchronous=True)
+    _patch_cluster_for_await(cluster)
     with patch.object(
-        SpecCluster, "_start", new_callable=AsyncMock
-    ), patch.object(
         VMCluster, "_wait_for_workers", new_callable=AsyncMock
     ) as mock_wait:
-        await cluster._start()
+        await cluster
 
     mock_wait.assert_called_once_with(1, timeout=120)
     await cluster.close()
