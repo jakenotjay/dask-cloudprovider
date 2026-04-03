@@ -78,6 +78,7 @@ class SchedulerMixin(object):
     ):
         super().__init__(*args, **kwargs)
         self.name = f"dask-{self.cluster.uuid}-scheduler"
+        self._scheduler_options = scheduler_options
         self.port = scheduler_options.get("port", 8786)
         self.command = " ".join(
             [

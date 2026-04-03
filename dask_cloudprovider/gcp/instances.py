@@ -194,7 +194,14 @@ class GCPInstance(VMInterface):
             safe_env_vars[key] = shlex.quote(str(v))
 
         scheduler_port = getattr(self, "port", 8786)
-        dashboard_port = scheduler_port + 1
+        # Dashboard address is independently configurable (default :8787).
+        dashboard_address = getattr(self, "_scheduler_options", {}).get(
+            "dashboard_address", ":8787"
+        )
+        try:
+            dashboard_port = int(str(dashboard_address).rsplit(":", 1)[-1])
+        except (ValueError, IndexError):
+            dashboard_port = 8787
 
         return template.render(
             image=self.docker_image,
