@@ -40,14 +40,13 @@ systemctl restart docker
 {% endif %}
 
 {% if not bootstrap %}
-# --- Open local firewall for container ports ---
-# COS has a restrictive iptables INPUT policy (DROP) that blocks non-standard
-# ports even when VPC firewall rules allow them. The VPC firewall remains the
-# security boundary; this just ensures traffic that passes VPC rules reaches
-# the container running with --net=host.
+# --- Open local firewall for Dask traffic ---
+# COS has a restrictive iptables INPUT policy (DROP) that blocks inbound
+# connections even when VPC firewall rules allow them. Workers use random
+# ports for nanny/worker communication, so we set the policy to ACCEPT.
+# The VPC firewall remains the real security boundary.
 if command -v iptables &> /dev/null && iptables -S INPUT 2>/dev/null | grep -q -- "-P INPUT DROP"; then
-  iptables -A INPUT -p tcp --dport {{ scheduler_port }} -j ACCEPT
-  iptables -A INPUT -p tcp --dport {{ dashboard_port }} -j ACCEPT
+  iptables -P INPUT ACCEPT
 fi
 {% endif %}
 
