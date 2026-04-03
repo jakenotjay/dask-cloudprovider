@@ -46,9 +46,7 @@ systemctl restart docker
 # from the GCP internal VPC range (scheduler<->worker, worker<->worker on
 # random ports) and open the scheduler/dashboard ports for external clients.
 if command -v iptables &> /dev/null && iptables -S INPUT 2>/dev/null | grep -q -- "-P INPUT DROP"; then
-  # NOTE: 10.128.0.0/9 is the default GCP auto-mode VPC range. Custom-mode
-  # VPCs with different CIDRs may need this adjusted.
-  iptables -A INPUT -s 10.128.0.0/9 -j ACCEPT
+  iptables -A INPUT -s {{ vpc_cidr }} -j ACCEPT
   iptables -A INPUT -p tcp --dport {{ scheduler_port }} -j ACCEPT
   iptables -A INPUT -p tcp --dport {{ dashboard_port }} -j ACCEPT
 fi

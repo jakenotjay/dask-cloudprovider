@@ -138,7 +138,7 @@ class GCPInstance(VMInterface):
                 f"got {self.instance_termination_action!r}"
             )
 
-        _instance_labels = self.config.get("instance_labels") or {}
+        _instance_labels = dict(self.config.get("instance_labels") or {})
         _instance_labels.update(instance_labels or {})
         _instance_labels.setdefault("managed-by", "dask-cloudprovider")
         _instance_labels["cluster-uuid"] = self.cluster.uuid
@@ -158,8 +158,9 @@ class GCPInstance(VMInterface):
             else self.config.get("network_tags", ["http-server", "https-server"])
         )
 
-        # Auto-detect COS images and skip bootstrap (Docker is pre-installed)
-        if self._is_cos_image():
+        # Auto-detect COS images and skip bootstrap (Docker is pre-installed),
+        # but only if the user didn't explicitly pass bootstrap=True.
+        if bootstrap is None and self._is_cos_image():
             self.bootstrap = False
 
     def _is_cos_image(self):
@@ -205,8 +206,11 @@ class GCPInstance(VMInterface):
 
         # WorkerMixin wraps the --spec JSON in '' pairs for YAML escaping
         # (in YAML single-quoted strings, '' is an escaped single quote).
-        # In bash, '' is just an empty string.  Convert to shell quoting.
-        command = self.command.replace("''", "'")
+        # In bash, '' is just an empty string.  Convert to shell quoting
+        # only around the --spec argument to avoid corrupting other '' sequences.
+        command = re.sub(r"''(\{.*\})''", r"'\1'", self.command)
+
+        vpc_cidr = getattr(self, "config", {}).get("vpc_cidr", "10.128.0.0/9")
 
         return template.render(
             image=self.docker_image,
@@ -219,6 +223,7 @@ class GCPInstance(VMInterface):
             env_vars=safe_env_vars,
             scheduler_port=scheduler_port,
             dashboard_port=dashboard_port,
+            vpc_cidr=vpc_cidr,
         )
 
     def create_gcp_config(self):
