@@ -327,8 +327,9 @@ class VMCluster(SpecCluster):
             try:
                 cluster.close(timeout=60)
             except Exception:
-                logging.getLogger(__name__).warning(
-                    "Failed to clean up cluster VMs during exit", exc_info=True
+                logging.getLogger(__name__).error(
+                    "Failed to clean up cluster VMs during exit — "
+                    "VMs may still be running", exc_info=True
                 )
         atexit.register(_atexit_close)
         self._atexit_close = _atexit_close  # prevent deregistration by GC

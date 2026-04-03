@@ -207,7 +207,7 @@ class GCPInstance(VMInterface):
         # (in YAML single-quoted strings, '' is an escaped single quote).
         # In bash, '' is just an empty string.  Convert to shell quoting
         # only around the --spec argument to avoid corrupting other '' sequences.
-        command = re.sub(r"(--spec\s+)''(\{.*\})''", r"\1'\2'", self.command)
+        command = re.sub(r"(--spec\s+)''(\{.*\})''$", r"\1'\2'", self.command)
 
         vpc_cidr = getattr(self, "config", {}).get("vpc_cidr", "10.128.0.0/9")
         ipaddress.ip_network(vpc_cidr, strict=False)  # validates CIDR format
@@ -566,8 +566,12 @@ class GCPCluster(VMCluster):
         By default the ``daskdev/dask:latest`` image will be used.
     docker_args: string (optional)
         Extra command line arguments to pass to Docker.
+        **Warning:** This value is interpolated verbatim into a bash script.
+        Do not pass untrusted input.
     extra_bootstrap: list[str] (optional)
         Extra commands to be run during the bootstrap phase.
+        **Warning:** These commands are rendered verbatim into a bash script.
+        Do not pass untrusted input.
     ngpus: int (optional)
         The number of GPUs to attach to both the worker and scheduler instances. If specified,
         you cannot use ``scheduler_ngpus`` or ``worker_ngpus`` (they must be None). Default is None.

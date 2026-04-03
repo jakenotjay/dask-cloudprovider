@@ -545,6 +545,13 @@ def test_public_ingress_false():
     assert instance.public_ingress is False
 
 
+def test_preemptible_deprecated_maps_to_spot():
+    """preemptible=True emits FutureWarning and sets spot=True."""
+    with pytest.warns(FutureWarning):
+        instance = _make_instance(preemptible=True)
+    assert instance.spot is True
+
+
 def _make_render_instance(bootstrap=False, **overrides):
     """Helper to create a GCPInstance for startup script rendering tests."""
     instance = GCPInstance.__new__(GCPInstance)
