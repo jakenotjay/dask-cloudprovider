@@ -524,19 +524,25 @@ def test_public_ingress_false():
     assert instance.public_ingress is False
 
 
-def test_render_startup_script_cos_has_iptables():
-    """COS (non-bootstrap) images open firewall for VPC and scheduler ports."""
+def _make_render_instance(bootstrap=False, **overrides):
+    """Helper to create a GCPInstance for startup script rendering tests."""
     instance = GCPInstance.__new__(GCPInstance)
-    instance.docker_image = "daskdev/dask:latest"
+    instance.docker_image = overrides.get("docker_image", "daskdev/dask:latest")
     instance.command = "python -m distributed.cli.dask_scheduler"
     instance.docker_args = ""
     instance.extra_bootstrap = None
     instance.gpu_instance = False
-    instance.bootstrap = False
+    instance.bootstrap = bootstrap
     instance.auto_shutdown = True
     instance.env_vars = {}
+    instance.port = overrides.get("port", 8786)
+    instance._scheduler_options = overrides.get("_scheduler_options", {})
+    return instance
 
-    script = instance.render_startup_script()
+
+def test_render_startup_script_cos_has_iptables():
+    """COS (non-bootstrap) images open firewall for VPC and scheduler ports."""
+    script = _make_render_instance().render_startup_script()
     # Guard clause checks for iptables and DROP policy
     assert "command -v iptables" in script
     assert '"-P INPUT DROP"' in script
@@ -549,18 +555,9 @@ def test_render_startup_script_cos_has_iptables():
 
 def test_render_startup_script_cos_custom_port_iptables():
     """Custom scheduler port propagates to iptables rules on COS."""
-    instance = GCPInstance.__new__(GCPInstance)
-    instance.docker_image = "daskdev/dask:latest"
-    instance.command = "python -m distributed.cli.dask_scheduler"
-    instance.docker_args = ""
-    instance.extra_bootstrap = None
-    instance.gpu_instance = False
-    instance.bootstrap = False
-    instance.auto_shutdown = True
-    instance.env_vars = {}
-    instance.port = 9786
-    instance._scheduler_options = {"dashboard_address": ":9999"}
-
+    instance = _make_render_instance(
+        port=9786, _scheduler_options={"dashboard_address": ":9999"}
+    )
     script = instance.render_startup_script()
     assert "iptables -A INPUT -p tcp --dport 9786" in script
     assert "iptables -A INPUT -p tcp --dport 9999" in script
@@ -568,17 +565,7 @@ def test_render_startup_script_cos_custom_port_iptables():
 
 def test_render_startup_script_bootstrap_no_iptables():
     """Bootstrap (Ubuntu) images do not modify iptables."""
-    instance = GCPInstance.__new__(GCPInstance)
-    instance.docker_image = "daskdev/dask:latest"
-    instance.command = "python -m distributed.cli.dask_scheduler"
-    instance.docker_args = ""
-    instance.extra_bootstrap = None
-    instance.gpu_instance = False
-    instance.bootstrap = True
-    instance.auto_shutdown = True
-    instance.env_vars = {}
-
-    script = instance.render_startup_script()
+    script = _make_render_instance(bootstrap=True).render_startup_script()
     assert "iptables" not in script
 
 
