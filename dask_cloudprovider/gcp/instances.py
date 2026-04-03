@@ -193,6 +193,9 @@ class GCPInstance(VMInterface):
                 )
             safe_env_vars[key] = shlex.quote(str(v))
 
+        scheduler_port = getattr(self, "port", 8786)
+        dashboard_port = scheduler_port + 1
+
         return template.render(
             image=self.docker_image,
             command=self.command,
@@ -202,6 +205,8 @@ class GCPInstance(VMInterface):
             bootstrap=self.bootstrap,
             auto_shutdown=self.auto_shutdown,
             env_vars=safe_env_vars,
+            scheduler_port=scheduler_port,
+            dashboard_port=dashboard_port,
         )
 
     def create_gcp_config(self):

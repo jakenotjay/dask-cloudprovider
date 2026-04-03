@@ -524,6 +524,57 @@ def test_public_ingress_false():
     assert instance.public_ingress is False
 
 
+def test_render_startup_script_cos_has_iptables():
+    """COS (non-bootstrap) images open scheduler ports in local iptables."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "daskdev/dask:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = ""
+    instance.extra_bootstrap = None
+    instance.gpu_instance = False
+    instance.bootstrap = False
+    instance.auto_shutdown = True
+    instance.env_vars = {}
+
+    script = instance.render_startup_script()
+    assert "iptables -A INPUT -p tcp --dport 8786" in script
+    assert "iptables -A INPUT -p tcp --dport 8787" in script
+
+
+def test_render_startup_script_bootstrap_no_iptables():
+    """Bootstrap (Ubuntu) images do not add iptables rules."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "daskdev/dask:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = ""
+    instance.extra_bootstrap = None
+    instance.gpu_instance = False
+    instance.bootstrap = True
+    instance.auto_shutdown = True
+    instance.env_vars = {}
+
+    script = instance.render_startup_script()
+    assert "iptables" not in script
+
+
+def test_render_startup_script_custom_port_in_iptables():
+    """Custom scheduler port is used in iptables rules."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "daskdev/dask:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = ""
+    instance.extra_bootstrap = None
+    instance.gpu_instance = False
+    instance.bootstrap = False
+    instance.auto_shutdown = True
+    instance.env_vars = {}
+    instance.port = 9786  # custom scheduler port
+
+    script = instance.render_startup_script()
+    assert "iptables -A INPUT -p tcp --dport 9786" in script
+    assert "iptables -A INPUT -p tcp --dport 9787" in script
+
+
 def test_build_scheduling_config_invalid_termination_action():
     """Invalid instance_termination_action raises ValueError during init."""
     from unittest.mock import MagicMock

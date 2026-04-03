@@ -46,8 +46,8 @@ systemctl restart docker
 # security boundary; this just ensures traffic that passes VPC rules reaches
 # the container running with --net=host.
 if command -v iptables &> /dev/null && iptables -S INPUT 2>/dev/null | grep -q -- "-P INPUT DROP"; then
-  iptables -A INPUT -p tcp --dport 8786 -j ACCEPT
-  iptables -A INPUT -p tcp --dport 8787 -j ACCEPT
+  iptables -A INPUT -p tcp --dport {{ scheduler_port }} -j ACCEPT
+  iptables -A INPUT -p tcp --dport {{ dashboard_port }} -j ACCEPT
 fi
 {% endif %}
 
