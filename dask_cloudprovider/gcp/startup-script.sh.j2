@@ -6,8 +6,21 @@ set -euo pipefail
 # Works reliably on all GCE images (Ubuntu, COS, Debian, etc.).
 
 {% if auto_shutdown %}
-# Ensure VM shuts down on any failure (bootstrap, credential setup, or container crash).
-trap 'shutdown -h now' EXIT
+# Ensure VM is deleted on any failure (bootstrap, credential setup, or container crash).
+# Uses the GCP metadata server to self-delete so the instance doesn't linger in STOPPED
+# state and continue to incur costs (e.g. disk charges).
+_self_delete() {
+  local project zone name token
+  project=$(curl -sf -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/project/project-id)
+  zone=$(curl -sf -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/zone | awk -F/ '{print $NF}')
+  name=$(curl -sf -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/name)
+  token=$(curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" | awk -F'"' '{print $4}')
+  curl -sf -X DELETE \
+    -H "Authorization: Bearer ${token}" \
+    "https://compute.googleapis.com/compute/v1/projects/${project}/zones/${zone}/instances/${name}" \
+    || shutdown -h now  # fallback to halt if delete fails
+}
+trap '_self_delete' EXIT
 {% endif %}
 
 {% if bootstrap %}
