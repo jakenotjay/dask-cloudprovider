@@ -128,6 +128,7 @@ cloudprovider:
       - "https://www.googleapis.com/auth/logging.write"
       - "https://www.googleapis.com/auth/monitoring.write"
       - "https://www.googleapis.com/auth/cloud-platform.read-only" # Artifact Registry pulls
+      - "https://www.googleapis.com/auth/compute" # required for auto_shutdown self-delete
 
   hetzner:
     token: null # API token for interacting with the Hetzner cloud API

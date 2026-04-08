@@ -346,6 +346,8 @@ def test_render_startup_script_no_bootstrap():
     assert "daskdev/dask:latest" in script
     assert "apt-get" not in script
     assert "curl -fsSL https://get.docker.com" not in script
+    assert "_self_delete" in script
+    assert "metadata.google.internal" in script
 
 
 def test_render_startup_script_with_bootstrap():
