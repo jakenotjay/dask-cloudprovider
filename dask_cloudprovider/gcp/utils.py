@@ -170,4 +170,6 @@ class GCPPreemptibleWorkerPlugin(WorkerPlugin):
         self._task = None
         if self._session and not self._session.closed:
             loop = IOLoop.current()
-            loop.add_callback(self._session.close)
+            loop.add_callback(
+                lambda: asyncio.ensure_future(self._session.close())
+            )

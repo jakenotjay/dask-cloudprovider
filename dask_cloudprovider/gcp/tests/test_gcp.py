@@ -830,22 +830,41 @@ async def test_preemption_plugin_teardown_cancels_task(_mock_gce):
         async def __aexit__(self, *args):
             pass
 
+    entered = asyncio.Event()
+
+    class _SignalingHangResponse:
+        async def text(self):
+            entered.set()
+            await asyncio.sleep(3600)
+            return "FALSE"
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
     with patch("aiohttp.ClientSession") as MockSession:
         instance = MockSession.return_value
-        instance.get = MagicMock(return_value=_HangingResponse())
+        instance.get = MagicMock(return_value=_SignalingHangResponse())
         instance.close = AsyncMock()
         instance.closed = False
 
         plugin.worker = worker
         plugin._start_watching()
-        await asyncio.sleep(0.05)
+        # Wait until the watch loop has entered its blocking get()
+        await asyncio.wait_for(entered.wait(), timeout=5)
 
         assert plugin._task is not None
         assert not plugin._task.done()
 
+        task_ref = plugin._task
         plugin.teardown(worker)
-        # Give the cancellation a moment to propagate
-        await asyncio.sleep(0.05)
+        # Wait for cancellation to propagate
+        try:
+            await asyncio.wait_for(task_ref, timeout=5)
+        except asyncio.CancelledError:
+            pass
 
     assert plugin._task is None
     worker.close_gracefully.assert_not_awaited()
@@ -880,6 +899,36 @@ async def test_preemption_plugin_no_preemption(_mock_gce):
 
     assert plugin.terminating is False
     worker.close_gracefully.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@patch("dask_cloudprovider.gcp.utils.is_inside_gce", return_value=True)
+async def test_preemption_plugin_setup_dispatches_task(_mock_gce):
+    """setup() uses IOLoop callback to create the watch task."""
+    plugin = GCPPreemptibleWorkerPlugin(poll_timeout_s=5)
+    worker = _make_mock_worker()
+    done = asyncio.Event()
+    original_close = worker.close_gracefully
+
+    async def _close_and_signal():
+        await original_close()
+        done.set()
+
+    worker.close_gracefully = _close_and_signal
+
+    with patch("aiohttp.ClientSession") as MockSession:
+        instance = MockSession.return_value
+        instance.get = MagicMock(return_value=_FakeResponse("TRUE"))
+        instance.close = AsyncMock()
+        instance.closed = False
+
+        plugin.setup(worker)
+        # setup() schedules via IOLoop.add_callback, so yield to let it fire
+        await asyncio.wait_for(done.wait(), timeout=5)
+
+    assert plugin.terminating is True
+    assert plugin._task is not None
+    original_close.assert_awaited_once()
 
 
 @patch("dask_cloudprovider.gcp.utils.is_inside_gce", return_value=False)
