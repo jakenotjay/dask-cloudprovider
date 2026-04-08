@@ -1,5 +1,9 @@
 import asyncio
+import logging
+
 import dask
+
+logger = logging.getLogger(__name__)
 
 from dask_cloudprovider.generic.vmcluster import (
     VMCluster,
@@ -267,7 +271,7 @@ class OpenStackWorker(WorkerMixin, OpenStackInstance):
             self.command = " ".join([self.set_env] + cmd + [scheduler_address])
 
     async def start(self):
-        self.cluster._log(f"Creating worker instance {self.name}")
+        logger.debug("Creating worker instance %s", self.name)
         await self.create_vm()
         self.status = Status.running
 

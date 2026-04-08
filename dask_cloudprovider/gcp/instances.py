@@ -1,9 +1,12 @@
 import asyncio
 import ipaddress
+import logging
 import os
 import re
 import shlex
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from typing import Optional, Any, Dict
 
@@ -501,8 +504,8 @@ class GCPWorker(WorkerMixin, GCPInstance):
         super().__init__(internal_scheduler, *args, **kwargs)
 
     async def start(self):
-        self.cluster._log(f"Worker GPU Count: {self.ngpus}")
-        self.cluster._log(f"Worker GPU Type: {self.gpu_type}")
+        logger.debug("Worker GPU Count: %s", self.ngpus)
+        logger.debug("Worker GPU Type: %s", self.gpu_type)
         await super().start()
 
 

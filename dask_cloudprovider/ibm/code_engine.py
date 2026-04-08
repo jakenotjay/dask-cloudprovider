@@ -1,8 +1,11 @@
 import json
+import logging
 import time
 import urllib3
 import threading
 import random
+
+logger = logging.getLogger(__name__)
 
 from kubernetes import client
 from kubernetes.client.rest import ApiException
@@ -423,7 +426,7 @@ class IBMCodeEngineWorker(WorkerMixin, IBMCodeEngine):
             self.docker_registry_name = "dask-" + self.docker_server.split(".")[0]
 
     async def start(self):
-        self.cluster._log(f"Creating worker instance {self.name}")
+        logger.debug("Creating worker instance %s", self.name)
         await self.create_vm()
         self.status = Status.running
 

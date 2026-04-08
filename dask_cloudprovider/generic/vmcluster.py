@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import uuid
+
+logger = logging.getLogger(__name__)
 import weakref
 
 from jinja2 import Environment, FileSystemLoader
@@ -162,7 +164,7 @@ class WorkerMixin(object):
             )
 
     async def start(self):
-        self.cluster._log("Creating worker instance")
+        logger.debug("Creating worker instance")
         self.address, _ = await self.create_vm()
         await super().start()
 
