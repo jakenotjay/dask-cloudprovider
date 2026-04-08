@@ -819,17 +819,6 @@ async def test_preemption_plugin_teardown_cancels_task(_mock_gce):
     plugin = GCPPreemptibleWorkerPlugin(poll_timeout_s=1)
     worker = _make_mock_worker()
 
-    class _HangingResponse:
-        async def text(self):
-            await asyncio.sleep(3600)
-            return "FALSE"
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            pass
-
     entered = asyncio.Event()
 
     class _SignalingHangResponse:

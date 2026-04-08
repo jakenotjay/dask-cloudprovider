@@ -168,8 +168,9 @@ class GCPPreemptibleWorkerPlugin(WorkerPlugin):
         if self._task is not None and not self._task.done():
             self._task.cancel()
         self._task = None
-        if self._session and not self._session.closed:
+        session = self._session
+        if session and not session.closed:
             loop = IOLoop.current()
             loop.add_callback(
-                lambda: asyncio.ensure_future(self._session.close())
+                lambda: asyncio.ensure_future(session.close())
             )
