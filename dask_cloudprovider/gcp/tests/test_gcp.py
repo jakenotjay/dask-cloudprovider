@@ -153,6 +153,39 @@ async def test_create_spot_cluster():
 @pytest.mark.asyncio
 @pytest.mark.timeout(1200)
 @pytest.mark.external
+async def test_spot_cluster_with_preemption_plugin():
+    """Spot cluster with preemption plugin: verify plugin is active on workers."""
+    skip_without_credentials()
+
+    async with GCPCluster(
+        asynchronous=True, spot=True, security=True
+    ) as cluster:
+        cluster.scale(1)
+
+        async with Client(cluster, asynchronous=True) as client:
+            await client.wait_for_workers(1, timeout=300)
+
+            plugin = GCPPreemptibleWorkerPlugin()
+            await client.register_plugin(plugin)
+
+            def check_plugin():
+                """Run on the worker to verify the plugin is registered."""
+                from distributed import get_worker
+
+                worker = get_worker()
+                plugin_names = [type(p).__name__ for p in worker.plugins.values()]
+                return "GCPPreemptibleWorkerPlugin" in plugin_names
+
+            result = await client.submit(check_plugin)
+            assert result is True
+
+            # Verify the worker can still execute tasks with the plugin active
+            assert await client.submit(lambda x: x + 1, 10) == 11
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(1200)
+@pytest.mark.external
 async def test_create_cluster_sync():
     skip_without_credentials()
 
