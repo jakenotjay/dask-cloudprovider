@@ -4,11 +4,11 @@ import json
 import logging
 import os
 import uuid
-
-logger = logging.getLogger(__name__)
 import weakref
 
 from jinja2 import Environment, FileSystemLoader
+
+logger = logging.getLogger(__name__)
 
 import dask.config
 from distributed.core import Status
