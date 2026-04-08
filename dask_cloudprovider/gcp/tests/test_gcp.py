@@ -1,6 +1,7 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 
 import dask
@@ -710,18 +711,27 @@ async def test_preemption_plugin_detects_preemption(_mock_gce):
     """Plugin calls close_gracefully when metadata returns TRUE."""
     plugin = GCPPreemptibleWorkerPlugin(poll_timeout_s=5)
     worker = _make_mock_worker()
+    done = asyncio.Event()
+    original_close = worker.close_gracefully
+
+    async def _close_and_signal():
+        await original_close()
+        done.set()
+
+    worker.close_gracefully = _close_and_signal
 
     with patch("aiohttp.ClientSession") as MockSession:
         instance = MockSession.return_value
         instance.get = MagicMock(return_value=_FakeResponse("TRUE"))
         instance.close = AsyncMock()
+        instance.closed = False
 
-        plugin.setup(worker)
-        # Let the task run
-        await asyncio.sleep(0.1)
+        plugin.worker = worker
+        plugin._start_watching()
+        await asyncio.wait_for(done.wait(), timeout=5)
 
     assert plugin.terminating is True
-    worker.close_gracefully.assert_awaited_once()
+    original_close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -730,6 +740,14 @@ async def test_preemption_plugin_retries_on_timeout(_mock_gce):
     """Plugin retries after timeout and eventually detects preemption."""
     plugin = GCPPreemptibleWorkerPlugin(poll_timeout_s=1)
     worker = _make_mock_worker()
+    done = asyncio.Event()
+    original_close = worker.close_gracefully
+
+    async def _close_and_signal():
+        await original_close()
+        done.set()
+
+    worker.close_gracefully = _close_and_signal
 
     call_count = 0
 
@@ -744,13 +762,15 @@ async def test_preemption_plugin_retries_on_timeout(_mock_gce):
         instance = MockSession.return_value
         instance.get = MagicMock(side_effect=fake_get)
         instance.close = AsyncMock()
+        instance.closed = False
 
-        plugin.setup(worker)
-        await asyncio.sleep(0.2)
+        plugin.worker = worker
+        plugin._start_watching()
+        await asyncio.wait_for(done.wait(), timeout=5)
 
     assert call_count >= 3
     assert plugin.terminating is True
-    worker.close_gracefully.assert_awaited_once()
+    original_close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -759,6 +779,14 @@ async def test_preemption_plugin_retries_on_error(_mock_gce):
     """Plugin retries after connection error and eventually detects preemption."""
     plugin = GCPPreemptibleWorkerPlugin(poll_timeout_s=1)
     worker = _make_mock_worker()
+    done = asyncio.Event()
+    original_close = worker.close_gracefully
+
+    async def _close_and_signal():
+        await original_close()
+        done.set()
+
+    worker.close_gracefully = _close_and_signal
 
     call_count = 0
 
@@ -773,13 +801,15 @@ async def test_preemption_plugin_retries_on_error(_mock_gce):
         instance = MockSession.return_value
         instance.get = MagicMock(side_effect=fake_get)
         instance.close = AsyncMock()
+        instance.closed = False
 
-        plugin.setup(worker)
-        await asyncio.sleep(1.5)  # need >1s for the retry sleep
+        plugin.worker = worker
+        plugin._start_watching()
+        await asyncio.wait_for(done.wait(), timeout=5)
 
     assert call_count >= 2
     assert plugin.terminating is True
-    worker.close_gracefully.assert_awaited_once()
+    original_close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -804,8 +834,10 @@ async def test_preemption_plugin_teardown_cancels_task(_mock_gce):
         instance = MockSession.return_value
         instance.get = MagicMock(return_value=_HangingResponse())
         instance.close = AsyncMock()
+        instance.closed = False
 
-        plugin.setup(worker)
+        plugin.worker = worker
+        plugin._start_watching()
         await asyncio.sleep(0.05)
 
         assert plugin._task is not None
@@ -832,7 +864,6 @@ async def test_preemption_plugin_no_preemption(_mock_gce):
         nonlocal call_count
         call_count += 1
         if call_count >= 3:
-            # Stop the loop by cancelling from outside
             raise asyncio.CancelledError()
         return _FakeResponse("FALSE")
 
@@ -840,9 +871,12 @@ async def test_preemption_plugin_no_preemption(_mock_gce):
         instance = MockSession.return_value
         instance.get = MagicMock(side_effect=fake_get)
         instance.close = AsyncMock()
+        instance.closed = False
 
-        plugin.setup(worker)
-        await asyncio.sleep(0.2)
+        plugin.worker = worker
+        plugin._start_watching()
+        # Wait for the task to finish (cancelled after 3 calls)
+        await asyncio.wait_for(plugin._task, timeout=5)
 
     assert plugin.terminating is False
     worker.close_gracefully.assert_not_awaited()

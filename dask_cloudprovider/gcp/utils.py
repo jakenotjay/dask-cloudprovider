@@ -6,6 +6,7 @@ import httplib2
 import googleapiclient.http
 import google_auth_httplib2
 from distributed.diagnostics.plugin import WorkerPlugin
+from tornado.ioloop import IOLoop
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +76,11 @@ class GCPPreemptibleWorkerPlugin(WorkerPlugin):
     poll_timeout_s : int, optional
         Timeout in seconds for each long-poll request to the metadata
         service.  When the timeout expires without a preemption signal
-        the request is retried automatically.
+        the request is retried automatically.  Should exceed the GCP
+        metadata server's own hold time (~60s) to avoid spurious
+        client-side timeouts.
 
-        Defaults to ``30``
+        Defaults to ``90``
 
     Examples
     --------
@@ -92,23 +95,24 @@ class GCPPreemptibleWorkerPlugin(WorkerPlugin):
     >>> client.register_worker_plugin(GCPPreemptibleWorkerPlugin())
     """
 
-    def __init__(self, metadata_url=None, poll_timeout_s=30):
+    def __init__(self, metadata_url=None, poll_timeout_s=90):
         self.metadata_url = metadata_url or GCP_PREEMPTED_METADATA_URL
         self.poll_timeout_s = poll_timeout_s
         self.worker = None
         self.terminating = False
         self._task = None
+        self._session = None
 
     async def _watch_for_preemption(self):
         """Long-poll the metadata service until preemption is signaled."""
-        session = aiohttp.ClientSession(
+        self._session = aiohttp.ClientSession(
             headers={"Metadata-Flavor": "Google"},
             timeout=aiohttp.ClientTimeout(total=self.poll_timeout_s),
         )
         try:
             while not self.terminating:
                 try:
-                    async with session.get(
+                    async with self._session.get(
                         self.metadata_url,
                         params={"wait_for_change": "true"},
                     ) as response:
@@ -137,7 +141,8 @@ class GCPPreemptibleWorkerPlugin(WorkerPlugin):
         except asyncio.CancelledError:
             return
         finally:
-            await session.close()
+            if self._session and not self._session.closed:
+                await self._session.close()
 
     def setup(self, worker):
         self.worker = worker
@@ -148,13 +153,21 @@ class GCPPreemptibleWorkerPlugin(WorkerPlugin):
                 "Preemption monitoring will likely fail.",
                 worker.name,
             )
-        self._task = asyncio.ensure_future(self._watch_for_preemption())
+        loop = IOLoop.current()
+        loop.add_callback(self._start_watching)
         logger.debug(
             "Worker %s: registered GCP preemption plugin", worker.name
         )
+
+    def _start_watching(self):
+        """Callback to create the watch task on the event loop."""
+        self._task = asyncio.ensure_future(self._watch_for_preemption())
 
     def teardown(self, worker):
         logger.debug("Worker %s: tearing down GCP preemption plugin", worker.name)
         if self._task is not None and not self._task.done():
             self._task.cancel()
-            self._task = None
+        self._task = None
+        if self._session and not self._session.closed:
+            loop = IOLoop.current()
+            loop.add_callback(self._session.close)
