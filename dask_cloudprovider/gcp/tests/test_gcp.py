@@ -222,7 +222,7 @@ async def test_spot_cluster_with_preemption_plugin():
                             GCP_URL + "?wait_for_change=true",
                             headers={"Metadata-Flavor": "Google"},
                         )
-                        with urllib.request.urlopen(req, timeout=90) as r:
+                        with urllib.request.urlopen(req, timeout=5) as r:
                             return r.read().decode().strip()
 
                     async def _watch(self):
