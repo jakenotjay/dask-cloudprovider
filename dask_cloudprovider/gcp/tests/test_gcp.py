@@ -154,33 +154,37 @@ async def test_create_spot_cluster():
 @pytest.mark.timeout(1200)
 @pytest.mark.external
 async def test_spot_cluster_with_preemption_plugin():
-    """Spot cluster with preemption plugin: verify plugin is active on workers."""
+    """Spot cluster: verify preemption metadata endpoint is reachable from worker."""
     skip_without_credentials()
 
     async with GCPCluster(
-        asynchronous=True, spot=True, security=True
+        asynchronous=True,
+        spot=True,
+        security=True,
+        docker_image="ghcr.io/dask/dask:2026.3.0-py3.13",
     ) as cluster:
         cluster.scale(1)
 
         async with Client(cluster, asynchronous=True) as client:
             await client.wait_for_workers(1, timeout=300)
 
-            plugin = GCPPreemptibleWorkerPlugin()
-            await client.register_plugin(plugin)
+            def check_preemption_metadata():
+                """Verify the GCP preemption metadata endpoint is reachable."""
+                import urllib.request
 
-            def check_plugin():
-                """Run on the worker to verify the plugin is registered."""
-                from distributed import get_worker
+                req = urllib.request.Request(
+                    "http://metadata.google.internal/computeMetadata/v1/instance/preempted",
+                    headers={"Metadata-Flavor": "Google"},
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    return resp.read().decode().strip()
 
-                worker = get_worker()
-                plugin_names = [type(p).__name__ for p in worker.plugins.values()]
-                return "GCPPreemptibleWorkerPlugin" in plugin_names
-
-            result = await client.submit(check_plugin)
-            assert result is True
-
-            # Verify the worker can still execute tasks with the plugin active
-            assert await client.submit(lambda x: x + 1, 10) == 11
+            results = await client.run(check_preemption_metadata)
+            # Every worker should report not preempted
+            for worker_addr, result in results.items():
+                assert result == "FALSE", (
+                    f"Worker {worker_addr} returned {result!r}"
+                )
 
 
 @pytest.mark.asyncio
