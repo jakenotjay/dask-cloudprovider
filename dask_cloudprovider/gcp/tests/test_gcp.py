@@ -154,22 +154,29 @@ async def test_create_spot_cluster():
 @pytest.mark.timeout(1200)
 @pytest.mark.external
 async def test_spot_cluster_with_preemption_plugin():
-    """Spot cluster: verify preemption metadata endpoint is reachable from worker."""
+    """Spot cluster: register preemption plugin and verify it activates."""
     skip_without_credentials()
+
+    # Pin Docker image to match local Python major.minor to avoid pickle
+    # incompatibility when serializing functions to the remote worker.
+    import sys
+
+    py_minor = sys.version_info.minor
+    docker_image = f"ghcr.io/dask/dask:2026.3.0-py3.{py_minor}"
 
     async with GCPCluster(
         asynchronous=True,
         spot=True,
         security=True,
-        docker_image="ghcr.io/dask/dask:2026.3.0-py3.13",
+        docker_image=docker_image,
     ) as cluster:
         cluster.scale(1)
 
         async with Client(cluster, asynchronous=True) as client:
             await client.wait_for_workers(1, timeout=300)
 
+            # Verify the GCP preemption metadata endpoint is reachable
             def check_preemption_metadata():
-                """Verify the GCP preemption metadata endpoint is reachable."""
                 import urllib.request
 
                 req = urllib.request.Request(
@@ -180,11 +187,96 @@ async def test_spot_cluster_with_preemption_plugin():
                     return resp.read().decode().strip()
 
             results = await client.run(check_preemption_metadata)
-            # Every worker should report not preempted
             for worker_addr, result in results.items():
                 assert result == "FALSE", (
                     f"Worker {worker_addr} returned {result!r}"
                 )
+
+            # Register a preemption-watching plugin on each worker via
+            # client.run.  We can't use client.register_plugin because
+            # the stock dask image doesn't have dask-cloudprovider, and
+            # pickle requires the full module path.  We use stdlib urllib
+            # instead of aiohttp (also not in the stock image) with an
+            # asyncio.to_thread wrapper for the blocking HTTP call.
+            def install_and_check_plugin(dask_worker=None):
+                import asyncio
+                import urllib.request
+                from distributed.diagnostics.plugin import WorkerPlugin
+                from tornado.ioloop import IOLoop
+
+                GCP_URL = (
+                    "http://metadata.google.internal/computeMetadata/v1"
+                    "/instance/preempted"
+                )
+
+                class _GCPPreemptPlugin(WorkerPlugin):
+                    name = "gcp-preempt-test"
+
+                    def __init__(self):
+                        self.worker = None
+                        self.terminating = False
+                        self._task = None
+
+                    def _poll_once(self):
+                        req = urllib.request.Request(
+                            GCP_URL + "?wait_for_change=true",
+                            headers={"Metadata-Flavor": "Google"},
+                        )
+                        with urllib.request.urlopen(req, timeout=90) as r:
+                            return r.read().decode().strip()
+
+                    async def _watch(self):
+                        try:
+                            while not self.terminating:
+                                try:
+                                    text = await asyncio.to_thread(
+                                        self._poll_once
+                                    )
+                                    if text == "TRUE":
+                                        self.terminating = True
+                                        await self.worker.close_gracefully()
+                                        return
+                                except asyncio.CancelledError:
+                                    return
+                                except Exception:
+                                    await asyncio.sleep(1)
+                        except asyncio.CancelledError:
+                            return
+
+                    def setup(self, worker):
+                        self.worker = worker
+                        loop = IOLoop.current()
+                        loop.add_callback(
+                            lambda: setattr(
+                                self, "_task",
+                                asyncio.ensure_future(self._watch()),
+                            )
+                        )
+
+                    def teardown(self, worker):
+                        if self._task and not self._task.done():
+                            self._task.cancel()
+                        self._task = None
+
+                plugin = _GCPPreemptPlugin()
+                dask_worker.plugins[plugin.name] = plugin
+                plugin.setup(dask_worker)
+                return {
+                    "registered": plugin.name in dask_worker.plugins,
+                    "terminating": plugin.terminating,
+                }
+
+            results = await client.run(install_and_check_plugin)
+            for worker_addr, info in results.items():
+                assert info["registered"], (
+                    f"Plugin not registered on {worker_addr}"
+                )
+                assert not info["terminating"], (
+                    f"Plugin already terminating on {worker_addr}"
+                )
+
+            # Verify tasks still execute with the plugin active
+            assert await client.submit(lambda x: x + 1, 10) == 11
 
 
 @pytest.mark.asyncio
