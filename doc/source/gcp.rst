@@ -5,6 +5,7 @@ Google Cloud Platform
 
 .. autosummary::
    GCPCluster
+   GCPPreemptibleWorkerPlugin
 
 Overview
 --------
@@ -51,4 +52,10 @@ Google Cloud VMs
 ----------------
 
 .. autoclass:: GCPCluster
+   :members:
+
+GCP Spot Instance Plugin
+------------------------
+
+.. autoclass:: GCPPreemptibleWorkerPlugin
    :members:

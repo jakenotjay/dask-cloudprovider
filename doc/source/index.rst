@@ -80,6 +80,17 @@ It can be used on any cluster that has workers running on Azure VMs, not just on
     from dask_cloudprovider.azure import AzurePreemptibleWorkerPlugin
     client.register_worker_plugin(AzurePreemptibleWorkerPlugin())
 
+For GCP Spot VMs you could use the :class:`dask_cloudprovider.gcp.GCPPreemptibleWorkerPlugin`.
+It uses the GCP metadata service's efficient long-poll endpoint for zero-latency preemption detection.
+
+.. code-block:: python
+
+    from distributed import Client
+    client = Client("<Any Dask cluster running on GCP Spot VMs>")
+
+    from dask_cloudprovider.gcp import GCPPreemptibleWorkerPlugin
+    client.register_worker_plugin(GCPPreemptibleWorkerPlugin())
+
 
 .. toctree::
     :maxdepth: 2

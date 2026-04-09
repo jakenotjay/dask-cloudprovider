@@ -1,3 +1,7 @@
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import aiohttp
 import pytest
 
 import dask
@@ -8,6 +12,7 @@ from dask_cloudprovider.gcp.instances import (
     GCPInstance,
     GCPWorker,
 )
+from dask_cloudprovider.gcp.utils import GCPPreemptibleWorkerPlugin
 from dask.distributed import Client
 from distributed.core import Status
 
@@ -143,6 +148,135 @@ async def test_create_spot_cluster():
         cluster.scale(1)
         await cluster
         assert len(cluster.workers) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(1200)
+@pytest.mark.external
+async def test_spot_cluster_with_preemption_plugin():
+    """Spot cluster: register preemption plugin and verify it activates."""
+    skip_without_credentials()
+
+    # Pin Docker image to match local Python major.minor to avoid pickle
+    # incompatibility when serializing functions to the remote worker.
+    import sys
+
+    py_minor = sys.version_info.minor
+    docker_image = f"ghcr.io/dask/dask:2026.3.0-py3.{py_minor}"
+
+    async with GCPCluster(
+        asynchronous=True,
+        spot=True,
+        security=True,
+        docker_image=docker_image,
+    ) as cluster:
+        cluster.scale(1)
+
+        async with Client(cluster, asynchronous=True) as client:
+            await client.wait_for_workers(1, timeout=300)
+
+            # Verify the GCP preemption metadata endpoint is reachable
+            def check_preemption_metadata():
+                import urllib.request
+
+                req = urllib.request.Request(
+                    "http://metadata.google.internal/computeMetadata/v1/instance/preempted",
+                    headers={"Metadata-Flavor": "Google"},
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    return resp.read().decode().strip()
+
+            results = await client.run(check_preemption_metadata)
+            for worker_addr, result in results.items():
+                assert result == "FALSE", (
+                    f"Worker {worker_addr} returned {result!r}"
+                )
+
+            # Register a preemption-watching plugin on each worker via
+            # client.run.  We can't use client.register_plugin because
+            # the stock dask image doesn't have dask-cloudprovider, and
+            # pickle requires the full module path.  We use stdlib urllib
+            # instead of aiohttp (also not in the stock image) with an
+            # asyncio.to_thread wrapper for the blocking HTTP call.
+            def install_and_check_plugin(dask_worker=None):
+                import asyncio
+                import urllib.request
+                from distributed.diagnostics.plugin import WorkerPlugin
+                from tornado.ioloop import IOLoop
+
+                GCP_URL = (
+                    "http://metadata.google.internal/computeMetadata/v1"
+                    "/instance/preempted"
+                )
+
+                class _GCPPreemptPlugin(WorkerPlugin):
+                    name = "gcp-preempt-test"
+
+                    def __init__(self):
+                        self.worker = None
+                        self.terminating = False
+                        self._task = None
+
+                    def _poll_once(self):
+                        req = urllib.request.Request(
+                            GCP_URL + "?wait_for_change=true",
+                            headers={"Metadata-Flavor": "Google"},
+                        )
+                        with urllib.request.urlopen(req, timeout=5) as r:
+                            return r.read().decode().strip()
+
+                    async def _watch(self):
+                        try:
+                            while not self.terminating:
+                                try:
+                                    text = await asyncio.to_thread(
+                                        self._poll_once
+                                    )
+                                    if text == "TRUE":
+                                        self.terminating = True
+                                        await self.worker.close_gracefully()
+                                        return
+                                except asyncio.CancelledError:
+                                    return
+                                except Exception:
+                                    await asyncio.sleep(1)
+                        except asyncio.CancelledError:
+                            return
+
+                    def setup(self, worker):
+                        self.worker = worker
+                        loop = IOLoop.current()
+                        loop.add_callback(
+                            lambda: setattr(
+                                self, "_task",
+                                asyncio.ensure_future(self._watch()),
+                            )
+                        )
+
+                    def teardown(self, worker):
+                        if self._task and not self._task.done():
+                            self._task.cancel()
+                        self._task = None
+
+                plugin = _GCPPreemptPlugin()
+                dask_worker.plugins[plugin.name] = plugin
+                plugin.setup(dask_worker)
+                return {
+                    "registered": plugin.name in dask_worker.plugins,
+                    "terminating": plugin.terminating,
+                }
+
+            results = await client.run(install_and_check_plugin)
+            for worker_addr, info in results.items():
+                assert info["registered"], (
+                    f"Plugin not registered on {worker_addr}"
+                )
+                assert not info["terminating"], (
+                    f"Plugin already terminating on {worker_addr}"
+                )
+
+            # Verify tasks still execute with the plugin active
+            assert await client.submit(lambda x: x + 1, 10) == 11
 
 
 @pytest.mark.asyncio
@@ -672,3 +806,274 @@ def test_worker_requires_cluster_kwarg():
     """GCPWorker raises ValueError when cluster kwarg is missing."""
     with pytest.raises(ValueError, match="requires a 'cluster'"):
         GCPWorker(scheduler="tcp://10.0.0.1:8786")
+
+
+# --- GCPPreemptibleWorkerPlugin tests ---
+
+
+class _FakeResponse:
+    """Minimal async context manager mimicking an aiohttp response."""
+
+    def __init__(self, body):
+        self._body = body
+
+    async def text(self):
+        return self._body
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        pass
+
+
+def _make_mock_worker():
+    worker = MagicMock()
+    worker.name = "test-worker-0"
+    worker.close_gracefully = AsyncMock()
+    return worker
+
+
+@pytest.mark.asyncio
+@patch("dask_cloudprovider.gcp.utils.is_inside_gce", return_value=True)
+async def test_preemption_plugin_detects_preemption(_mock_gce):
+    """Plugin calls close_gracefully when metadata returns TRUE."""
+    plugin = GCPPreemptibleWorkerPlugin(poll_timeout_s=5)
+    worker = _make_mock_worker()
+    done = asyncio.Event()
+    original_close = worker.close_gracefully
+
+    async def _close_and_signal():
+        await original_close()
+        done.set()
+
+    worker.close_gracefully = _close_and_signal
+
+    with patch("aiohttp.ClientSession") as MockSession:
+        instance = MockSession.return_value
+        instance.get = MagicMock(return_value=_FakeResponse("TRUE"))
+        instance.close = AsyncMock()
+        instance.closed = False
+
+        plugin.worker = worker
+        plugin._start_watching()
+        await asyncio.wait_for(done.wait(), timeout=5)
+
+    assert plugin.terminating is True
+    original_close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@patch("dask_cloudprovider.gcp.utils.is_inside_gce", return_value=True)
+async def test_preemption_plugin_retries_on_timeout(_mock_gce):
+    """Plugin retries after timeout and eventually detects preemption."""
+    plugin = GCPPreemptibleWorkerPlugin(poll_timeout_s=1)
+    worker = _make_mock_worker()
+    done = asyncio.Event()
+    original_close = worker.close_gracefully
+
+    async def _close_and_signal():
+        await original_close()
+        done.set()
+
+    worker.close_gracefully = _close_and_signal
+
+    call_count = 0
+
+    def fake_get(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise asyncio.TimeoutError()
+        return _FakeResponse("TRUE")
+
+    with patch("aiohttp.ClientSession") as MockSession:
+        instance = MockSession.return_value
+        instance.get = MagicMock(side_effect=fake_get)
+        instance.close = AsyncMock()
+        instance.closed = False
+
+        plugin.worker = worker
+        plugin._start_watching()
+        await asyncio.wait_for(done.wait(), timeout=5)
+
+    assert call_count >= 3
+    assert plugin.terminating is True
+    original_close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@patch("dask_cloudprovider.gcp.utils.is_inside_gce", return_value=True)
+async def test_preemption_plugin_retries_on_error(_mock_gce):
+    """Plugin retries after connection error and eventually detects preemption."""
+    plugin = GCPPreemptibleWorkerPlugin(poll_timeout_s=1)
+    worker = _make_mock_worker()
+    done = asyncio.Event()
+    original_close = worker.close_gracefully
+
+    async def _close_and_signal():
+        await original_close()
+        done.set()
+
+    worker.close_gracefully = _close_and_signal
+
+    call_count = 0
+
+    def fake_get(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise aiohttp.ClientError("connection refused")
+        return _FakeResponse("TRUE")
+
+    with patch("aiohttp.ClientSession") as MockSession:
+        instance = MockSession.return_value
+        instance.get = MagicMock(side_effect=fake_get)
+        instance.close = AsyncMock()
+        instance.closed = False
+
+        plugin.worker = worker
+        plugin._start_watching()
+        await asyncio.wait_for(done.wait(), timeout=5)
+
+    assert call_count >= 2
+    assert plugin.terminating is True
+    original_close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@patch("dask_cloudprovider.gcp.utils.is_inside_gce", return_value=True)
+async def test_preemption_plugin_teardown_cancels_task(_mock_gce):
+    """Teardown cancels the monitoring task."""
+    plugin = GCPPreemptibleWorkerPlugin(poll_timeout_s=1)
+    worker = _make_mock_worker()
+
+    entered = asyncio.Event()
+
+    class _SignalingHangResponse:
+        async def text(self):
+            entered.set()
+            await asyncio.sleep(3600)
+            return "FALSE"
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+    with patch("aiohttp.ClientSession") as MockSession:
+        instance = MockSession.return_value
+        instance.get = MagicMock(return_value=_SignalingHangResponse())
+        instance.close = AsyncMock()
+        instance.closed = False
+
+        plugin.worker = worker
+        plugin._start_watching()
+        # Wait until the watch loop has entered its blocking get()
+        await asyncio.wait_for(entered.wait(), timeout=5)
+
+        assert plugin._task is not None
+        assert not plugin._task.done()
+
+        task_ref = plugin._task
+        plugin.teardown(worker)
+        # Wait for cancellation to propagate
+        try:
+            await asyncio.wait_for(task_ref, timeout=5)
+        except asyncio.CancelledError:
+            pass
+
+    assert plugin._task is None
+    worker.close_gracefully.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@patch("dask_cloudprovider.gcp.utils.is_inside_gce", return_value=True)
+async def test_preemption_plugin_no_preemption(_mock_gce):
+    """Plugin does not trigger shutdown when metadata returns FALSE."""
+    plugin = GCPPreemptibleWorkerPlugin(poll_timeout_s=1)
+    worker = _make_mock_worker()
+
+    call_count = 0
+
+    def fake_get(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 3:
+            raise asyncio.CancelledError()
+        return _FakeResponse("FALSE")
+
+    with patch("aiohttp.ClientSession") as MockSession:
+        instance = MockSession.return_value
+        instance.get = MagicMock(side_effect=fake_get)
+        instance.close = AsyncMock()
+        instance.closed = False
+
+        plugin.worker = worker
+        plugin._start_watching()
+        # Wait for the task to finish (cancelled after 3 calls)
+        await asyncio.wait_for(plugin._task, timeout=5)
+
+    assert plugin.terminating is False
+    worker.close_gracefully.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@patch("dask_cloudprovider.gcp.utils.is_inside_gce", return_value=True)
+async def test_preemption_plugin_setup_dispatches_task(_mock_gce):
+    """setup() uses IOLoop callback to create the watch task."""
+    plugin = GCPPreemptibleWorkerPlugin(poll_timeout_s=5)
+    worker = _make_mock_worker()
+    done = asyncio.Event()
+    original_close = worker.close_gracefully
+
+    async def _close_and_signal():
+        await original_close()
+        done.set()
+
+    worker.close_gracefully = _close_and_signal
+
+    with patch("aiohttp.ClientSession") as MockSession:
+        instance = MockSession.return_value
+        instance.get = MagicMock(return_value=_FakeResponse("TRUE"))
+        instance.close = AsyncMock()
+        instance.closed = False
+
+        plugin.setup(worker)
+        # setup() schedules via IOLoop.add_callback, so yield to let it fire
+        await asyncio.wait_for(done.wait(), timeout=5)
+
+    assert plugin.terminating is True
+    assert plugin._task is not None
+    original_close.assert_awaited_once()
+
+
+@patch("dask_cloudprovider.gcp.utils.is_inside_gce", return_value=False)
+def test_preemption_plugin_warns_outside_gce(_mock_gce, caplog):
+    """Plugin logs a warning when not running on GCE."""
+    import logging
+
+    plugin = GCPPreemptibleWorkerPlugin()
+    worker = _make_mock_worker()
+
+    with caplog.at_level(logging.WARNING, logger="dask_cloudprovider.gcp.utils"):
+        plugin.setup(worker)
+
+    assert "does not appear to be running on GCE" in caplog.text
+    # Clean up
+    plugin.teardown(worker)
+
+
+def test_preemption_plugin_custom_url():
+    """Custom metadata URL is stored correctly."""
+    url = "http://custom-metadata/preempted"
+    plugin = GCPPreemptibleWorkerPlugin(metadata_url=url)
+    assert plugin.metadata_url == url
+
+
+def test_preemption_plugin_default_url():
+    """Default metadata URL points to GCP metadata service."""
+    plugin = GCPPreemptibleWorkerPlugin()
+    assert "metadata.google.internal" in plugin.metadata_url
+    assert "preempted" in plugin.metadata_url
