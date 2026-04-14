@@ -967,6 +967,10 @@ class GCPCluster(VMCluster):
                     "not get graceful shutdown on preemption",
                     exc_info=True,
                 )
+                self._log(
+                    "WARNING: Failed to register preemption plugin — "
+                    "workers will not get graceful shutdown on preemption"
+                )
 
 
 class GCPCompute:
