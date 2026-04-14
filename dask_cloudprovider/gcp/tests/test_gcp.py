@@ -462,6 +462,49 @@ async def test_preemption_plugin_disabled_without_spot():
     assert cluster._use_preemption_plugin is False
 
 
+@pytest.mark.asyncio
+async def test_start_registers_preemption_plugin_when_spot():
+    """_start() calls register_worker_plugin on the scheduler when spot=True."""
+    # Build a minimal GCPCluster without triggering __init__ (avoids credentials)
+    cluster = GCPCluster.__new__(GCPCluster)
+    cluster._use_preemption_plugin = True
+    cluster._log = MagicMock()
+
+    mock_comm = AsyncMock()
+    mock_comm.register_worker_plugin = AsyncMock(return_value={})
+    cluster.scheduler_comm = mock_comm
+
+    with patch(
+        "dask_cloudprovider.generic.vmcluster.VMCluster._start",
+        new_callable=AsyncMock,
+    ):
+        await GCPCluster._start(cluster)
+
+    mock_comm.register_worker_plugin.assert_called_once()
+    call_kwargs = mock_comm.register_worker_plugin.call_args
+    assert call_kwargs.kwargs.get("name") == "gcp-preemption"
+
+
+@pytest.mark.asyncio
+async def test_start_skips_plugin_when_not_spot():
+    """_start() does not register plugin when spot=False."""
+    cluster = GCPCluster.__new__(GCPCluster)
+    cluster._use_preemption_plugin = False
+    cluster._log = MagicMock()
+
+    mock_comm = AsyncMock()
+    mock_comm.register_worker_plugin = AsyncMock(return_value={})
+    cluster.scheduler_comm = mock_comm
+
+    with patch(
+        "dask_cloudprovider.generic.vmcluster.VMCluster._start",
+        new_callable=AsyncMock,
+    ):
+        await GCPCluster._start(cluster)
+
+    mock_comm.register_worker_plugin.assert_not_called()
+
+
 # --- COS image detection unit tests ---
 
 

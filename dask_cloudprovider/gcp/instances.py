@@ -663,6 +663,7 @@ class GCPCluster(VMCluster):
         service on each worker and calls ``worker.close_gracefully()`` when a
         preemption signal is received, allowing in-flight tasks to migrate before
         the VM is terminated.  Has no effect when ``spot=False``.
+        Can also be set via Dask config key ``cloudprovider.gcp.preemption_plugin``.
         Defaults to ``True``.
     preemptible: bool (optional)
         .. deprecated:: Use ``spot=True`` instead.
@@ -948,17 +949,24 @@ class GCPCluster(VMCluster):
         # Register the preemption plugin so the scheduler pushes it to
         # all current and future workers.
         if self._use_preemption_plugin:
-            from distributed.protocol import dumps
+            try:
+                from distributed.protocol import dumps
 
-            from dask_cloudprovider.gcp.utils import GCPPreemptibleWorkerPlugin
+                from dask_cloudprovider.gcp.utils import GCPPreemptibleWorkerPlugin
 
-            plugin = GCPPreemptibleWorkerPlugin()
-            await self.scheduler_comm.register_worker_plugin(
-                plugin=dumps(plugin), name="gcp-preemption", idempotent=True
-            )
-            self._log(
-                "Registered GCPPreemptibleWorkerPlugin for Spot VM workers"
-            )
+                plugin = GCPPreemptibleWorkerPlugin()
+                await self.scheduler_comm.register_worker_plugin(
+                    plugin=dumps(plugin), name="gcp-preemption", idempotent=True
+                )
+                self._log(
+                    "Registered GCPPreemptibleWorkerPlugin for Spot VM workers"
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to register preemption plugin — workers will "
+                    "not get graceful shutdown on preemption",
+                    exc_info=True,
+                )
 
 
 class GCPCompute:
