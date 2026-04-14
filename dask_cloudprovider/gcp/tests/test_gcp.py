@@ -505,6 +505,32 @@ async def test_start_skips_plugin_when_not_spot():
     mock_comm.register_worker_plugin.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_start_logs_warning_on_plugin_registration_failure():
+    """_start() still completes if register_worker_plugin raises."""
+    cluster = GCPCluster.__new__(GCPCluster)
+    cluster._use_preemption_plugin = True
+    cluster._log = MagicMock()
+
+    mock_comm = AsyncMock()
+    mock_comm.register_worker_plugin = AsyncMock(
+        side_effect=Exception("boom")
+    )
+    cluster.scheduler_comm = mock_comm
+
+    with patch(
+        "dask_cloudprovider.generic.vmcluster.VMCluster._start",
+        new_callable=AsyncMock,
+    ), patch(
+        "dask_cloudprovider.gcp.instances.logger"
+    ) as mock_logger:
+        # Should not raise
+        await GCPCluster._start(cluster)
+
+    mock_logger.warning.assert_called_once()
+    assert "Failed to register preemption plugin" in mock_logger.warning.call_args[0][0]
+
+
 # --- COS image detection unit tests ---
 
 

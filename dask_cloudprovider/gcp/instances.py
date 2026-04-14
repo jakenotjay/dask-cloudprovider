@@ -949,12 +949,12 @@ class GCPCluster(VMCluster):
         # Register the preemption plugin so the scheduler pushes it to
         # all current and future workers.
         if self._use_preemption_plugin:
+            from distributed.protocol import dumps
+
+            from dask_cloudprovider.gcp.utils import GCPPreemptibleWorkerPlugin
+
+            plugin = GCPPreemptibleWorkerPlugin()
             try:
-                from distributed.protocol import dumps
-
-                from dask_cloudprovider.gcp.utils import GCPPreemptibleWorkerPlugin
-
-                plugin = GCPPreemptibleWorkerPlugin()
                 await self.scheduler_comm.register_worker_plugin(
                     plugin=dumps(plugin), name="gcp-preemption", idempotent=True
                 )
