@@ -433,11 +433,19 @@ class GCPInstance(VMInterface):
 
     async def close(self):
         self.cluster._log(f"Closing Instance: {self.name}")
-        await self.call_async(
-            self.cluster.compute.instances()
-            .delete(project=self.projectid, zone=self.zone, instance=self.name)
-            .execute
-        )
+        try:
+            await self.call_async(
+                self.cluster.compute.instances()
+                .delete(project=self.projectid, zone=self.zone, instance=self.name)
+                .execute
+            )
+        except HttpError as e:
+            if e.resp.status == 404:
+                self.cluster._log(
+                    f"Instance {self.name} not found — already deleted (preempted?)"
+                )
+            else:
+                raise
 
 
 class GCPScheduler(SchedulerMixin, GCPInstance):
@@ -649,6 +657,13 @@ class GCPCluster(VMCluster):
         ``"DELETE"`` (default) and ``"STOP"``. ``"DELETE"`` is recommended for Dask
         workers since Dask will replace terminated workers.
         Only relevant when ``spot=True``. Defaults to ``"DELETE"``.
+    preemption_plugin: bool (optional)
+        Whether to automatically register a :class:`GCPPreemptibleWorkerPlugin` on
+        the cluster when ``spot=True``.  The plugin monitors the GCE metadata
+        service on each worker and calls ``worker.close_gracefully()`` when a
+        preemption signal is received, allowing in-flight tasks to migrate before
+        the VM is terminated.  Has no effect when ``spot=False``.
+        Defaults to ``True``.
     preemptible: bool (optional)
         .. deprecated:: Use ``spot=True`` instead.
         Whether to use preemptible instances for workers in this cluster. Defaults to ``False``.
@@ -776,6 +791,7 @@ class GCPCluster(VMCluster):
         preemptible=None,
         spot=None,
         instance_termination_action=None,
+        preemption_plugin=None,
         debug=False,
         instance_labels=None,
         service_account=None,
@@ -911,10 +927,38 @@ class GCPCluster(VMCluster):
         if "extra_bootstrap" not in kwargs:
             kwargs["extra_bootstrap"] = self.config.get("extra_bootstrap")
 
+        # Resolve whether to auto-register the preemption plugin.
+        # Only meaningful when workers use spot; ignored otherwise.
+        resolved_spot = self.options.get("spot") or self.options.get("preemptible")
+        resolved_plugin = (
+            preemption_plugin
+            if preemption_plugin is not None
+            else self.config.get("preemption_plugin", True)
+        )
+        self._use_preemption_plugin = bool(resolved_spot and resolved_plugin)
+
         super().__init__(debug=debug, **kwargs)
 
         if not self.ngpus and (self.scheduler_ngpus == 0 and self.worker_ngpus == 0):
             self._log("No GPU instances configured")
+
+    async def _start(self):
+        await super()._start()
+        # scheduler_comm is now available (set in SpecCluster._start).
+        # Register the preemption plugin so the scheduler pushes it to
+        # all current and future workers.
+        if self._use_preemption_plugin:
+            from distributed.protocol import dumps
+
+            from dask_cloudprovider.gcp.utils import GCPPreemptibleWorkerPlugin
+
+            plugin = GCPPreemptibleWorkerPlugin()
+            await self.scheduler_comm.register_worker_plugin(
+                plugin=dumps(plugin), name="gcp-preemption", idempotent=True
+            )
+            self._log(
+                "Registered GCPPreemptibleWorkerPlugin for Spot VM workers"
+            )
 
 
 class GCPCompute:

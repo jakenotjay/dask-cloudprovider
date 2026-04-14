@@ -435,6 +435,33 @@ async def test_spot_true_passed_to_workers():
     assert cluster.worker_options["spot"] is True
 
 
+@pytest.mark.asyncio
+async def test_preemption_plugin_enabled_by_default_for_spot():
+    """spot=True enables preemption plugin by default."""
+    skip_without_credentials()
+
+    cluster = GCPCluster(asynchronous=True, spot=True)
+    assert cluster._use_preemption_plugin is True
+
+
+@pytest.mark.asyncio
+async def test_preemption_plugin_opt_out():
+    """spot=True with preemption_plugin=False disables the plugin."""
+    skip_without_credentials()
+
+    cluster = GCPCluster(asynchronous=True, spot=True, preemption_plugin=False)
+    assert cluster._use_preemption_plugin is False
+
+
+@pytest.mark.asyncio
+async def test_preemption_plugin_disabled_without_spot():
+    """Non-spot cluster does not enable the preemption plugin."""
+    skip_without_credentials()
+
+    cluster = GCPCluster(asynchronous=True)
+    assert cluster._use_preemption_plugin is False
+
+
 # --- COS image detection unit tests ---
 
 
