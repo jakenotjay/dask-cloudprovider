@@ -598,6 +598,75 @@ def test_render_startup_script_with_bootstrap():
     assert "curl -fsSL https://get.docker.com" in script
 
 
+def _docker_run_line(script):
+    """Return the actual `docker run` invocation line from a rendered script.
+
+    The template also mentions --gpus=all in an explanatory comment, so a
+    whole-script substring check is ambiguous; the invariant is about the
+    flag on the real docker run command, which lives on its own line.
+    """
+    for line in script.splitlines():
+        if line.startswith("docker run"):
+            return line
+    raise AssertionError("no `docker run` line found in rendered script")
+
+
+def test_render_startup_script_gpu_bootstrap_emits_gpus_all():
+    """GPU + bootstrap (Ubuntu) installs nvidia-docker2, so --gpus=all is emitted."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "daskdev/dask:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = ""
+    instance.extra_bootstrap = None
+    instance.gpu_instance = True
+    instance.bootstrap = True
+    instance.auto_shutdown = True
+    instance.env_vars = {}
+
+    script = instance.render_startup_script()
+    assert "--gpus=all" in _docker_run_line(script)
+    # The NVIDIA container runtime install command must also be present.
+    assert "apt-get install -y nvidia-docker2" in script
+
+
+def test_render_startup_script_gpu_no_bootstrap_omits_gpus_all():
+    """GPU + no bootstrap (COS) never registers nvidia-docker2, so --gpus=all
+    must NOT be emitted; the GPU is exposed via docker_args device mounts."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "daskdev/dask:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = "--device /dev/nvidia0 -v /var/lib/nvidia:/usr/local/nvidia"
+    instance.extra_bootstrap = None
+    instance.gpu_instance = True
+    instance.bootstrap = False
+    instance.auto_shutdown = True
+    instance.env_vars = {}
+
+    script = instance.render_startup_script()
+    assert "--gpus=all" not in _docker_run_line(script)
+    # nvidia-docker2 install is gated on bootstrap, so it must be absent too.
+    assert "apt-get install -y nvidia-docker2" not in script
+    # docker_args (device mounts) are still passed through.
+    assert "--device /dev/nvidia0" in _docker_run_line(script)
+
+
+@pytest.mark.parametrize("bootstrap", [True, False])
+def test_render_startup_script_no_gpu_omits_gpus_all(bootstrap):
+    """Non-GPU instances never emit --gpus=all regardless of bootstrap."""
+    instance = GCPInstance.__new__(GCPInstance)
+    instance.docker_image = "daskdev/dask:latest"
+    instance.command = "python -m distributed.cli.dask_scheduler"
+    instance.docker_args = ""
+    instance.extra_bootstrap = None
+    instance.gpu_instance = False
+    instance.bootstrap = bootstrap
+    instance.auto_shutdown = True
+    instance.env_vars = {}
+
+    script = instance.render_startup_script()
+    assert "--gpus=all" not in _docker_run_line(script)
+
+
 def test_render_startup_script_with_env_vars():
     """Environment variables are passed to the docker run command."""
     instance = GCPInstance.__new__(GCPInstance)

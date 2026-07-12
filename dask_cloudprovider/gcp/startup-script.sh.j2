@@ -95,4 +95,9 @@ docker-credential-gcr configure-docker --registries="{{ image.split('/')[0] }}"
 # --- Run Dask container ---
 # NOTE: extra_bootstrap commands are rendered verbatim — callers must not pass
 # untrusted input.  The template does not sanitize them.
-docker run --net=host{% if gpu_instance %} --gpus=all{% endif %}{% for key in env_vars %} -e {{ key }}={{ env_vars[key] }}{% endfor %}{% if docker_args %} {{ docker_args }}{% endif %} {{ image }} {{ command }}
+# Only emit --gpus=all when bootstrap installed the NVIDIA container runtime
+# (the `bootstrap and gpu_instance` block above).  COS workers set
+# bootstrap=False, so nvidia-docker2 is never registered there; they expose the
+# GPU via explicit device mounts passed through docker_args instead, and
+# --gpus=all would fail the docker run and trip the self-delete trap.
+docker run --net=host{% if gpu_instance and bootstrap %} --gpus=all{% endif %}{% for key in env_vars %} -e {{ key }}={{ env_vars[key] }}{% endfor %}{% if docker_args %} {{ docker_args }}{% endif %} {{ image }} {{ command }}
